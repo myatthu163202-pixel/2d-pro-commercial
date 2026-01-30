@@ -8,13 +8,16 @@ import re
 # --- ၁။ Page Setup ---
 st.set_page_config(page_title="2D Agent Pro", layout="wide", page_icon="💰")
 
-# --- ၂။ User Database ---
-USERS = {"admin": "123456", "thiri": "163202"}
+# --- ၂။ Persistent Storage Logic (Refresh လုပ်လည်း လုံးဝမပျောက်စေရန်) ---
+# ဒီ Function က Browser သက်တမ်းတစ်လျှောက် Link တွေကို မှတ်ထားပေးမှာပါ
+@st.cache_resource
+def get_permanent_storage():
+    return {"admin": {"sheet": "", "script": ""}, "thiri": {"sheet": "", "script": ""}}
 
-# --- ၃။ Persistence Logic (Refresh လုပ်သော်လည်း Link မပျောက်စေရန်) ---
-# Session State ထဲတွင် သိမ်းဆည်းခြင်း
-if "user_storage" not in st.session_state:
-    st.session_state["user_storage"] = {u: {"sheet": "", "script": ""} for u in USERS}
+db = get_permanent_storage()
+
+# --- ၃။ User Database ---
+USERS = {"admin": "123456", "thiri": "163202"}
 
 # --- ၄။ Login စနစ် ---
 if "logged_in" not in st.session_state:
@@ -37,28 +40,28 @@ if not st.session_state["logged_in"]:
 
 curr_user = st.session_state["username"]
 
-# --- ၅။ Sidebar (Link များ အသေမှတ်ထားရန်) ---
+# --- ၅။ Sidebar (Link များ သိမ်းဆည်းခြင်း) ---
 st.sidebar.title(f"👋 {curr_user}")
 
-# လက်ရှိ User အတွက် သိမ်းထားသော Link များကို ဆွဲထုတ်ခြင်း
-user_links = st.session_state["user_storage"][curr_user]
+# Permanent Storage ထဲက Link ကို ဆွဲထုတ်
+saved_sheet = db[curr_user]["sheet"]
+saved_script = db[curr_user]["script"]
 
-with st.sidebar.expander("🛠 Software Setup (Link များသိမ်းရန်)", expanded=False):
-    # value နေရာတွင် user_links မှ တန်ဖိုးကို ထည့်ထားသဖြင့် Refresh လုပ်သော်လည်း မပျောက်ပါ
-    in_sheet = st.text_input("Google Sheet URL", value=user_links["sheet"], key=f"sheet_{curr_user}")
-    in_script = st.text_input("Apps Script URL", value=user_links["script"], key=f"script_{curr_user}")
+with st.sidebar.expander("🛠 Software Setup (Link များသိမ်းရန်)", expanded=(not saved_sheet)):
+    in_sheet = st.text_input("Google Sheet URL", value=saved_sheet)
+    in_script = st.text_input("Apps Script URL", value=saved_script)
     
-    if st.button("✅ Save Links Permanently"):
-        st.session_state["user_storage"][curr_user]["sheet"] = in_sheet
-        st.session_state["user_storage"][curr_user]["script"] = in_script
-        st.success("လင့်ခ်များကို မှတ်သားပြီးပါပြီ။")
+    if st.button("✅ Save Links (အသေမှတ်မည်)"):
+        db[curr_user]["sheet"] = in_sheet
+        db[curr_user]["script"] = in_script
+        st.success("လင့်ခ်များကို Browser Memory ထဲ သိမ်းလိုက်ပါပြီ။ Refresh လုပ်လည်း မပျောက်တော့ပါ။")
         time.sleep(1)
         st.rerun()
 
-sheet_url = user_links["sheet"]
-script_url = user_links["script"]
+sheet_url = db[curr_user]["sheet"]
+script_url = db[curr_user]["script"]
 
-# ပေါက်ဂဏန်းစစ်ရန်နှင့် ဇ (အဆ) သတ်မှတ်ရန်
+# ပေါက်ဂဏန်းစစ်ရန်
 st.sidebar.divider()
 win_num = st.sidebar.text_input("🎰 ပေါက်ဂဏန်းစစ်", max_chars=2)
 za_rate = st.sidebar.number_input("💰 ဇ (အဆ) ထည့်", value=80)
@@ -78,20 +81,21 @@ def get_csv_url(url):
 
 try:
     csv_url = get_csv_url(sheet_url)
+    # cachebuster သုံးပြီး data အသစ်ကို အမြဲဆွဲယူခိုင်းထားသည်
     df = pd.read_csv(f"{csv_url}&cachebuster={int(time.time())}")
     df.columns = df.columns.str.strip()
     df['Number'] = df['Number'].astype(str).str.zfill(2)
     df['Amount'] = pd.to_numeric(df['Amount'], errors='coerce').fillna(0)
 except Exception as e:
-    st.error("❌ ဒေတာဆွဲမရပါ။ Link ပြန်စစ်ပါ။")
+    st.error("❌ ဒေတာဆွဲမရပါ။ Link မှန်/မမှန် ပြန်စစ်ပါ။")
     st.stop()
 
 # --- ၇။ Main Dashboard ---
-st.title(f"💰 {curr_user}'s 2D Dashboard")
+st.title(f"💰 {curr_user}'s 2D Agent Pro")
 total_in = df['Amount'].sum() if not df.empty else 0
 st.metric("စုစုပေါင်းရောင်းရငွေ", f"{total_in:,.0f} Ks")
 
-# စာရင်းအသစ်သွင်းခြင်း (မြန်မာစံတော်ချိန် အလိုအလျောက်ပါဝင်သည်)
+# စာရင်းအသစ်သွင်းခြင်း
 with st.expander("📝 စာရင်းအသစ်သွင်းရန်"):
     with st.form("entry_form", clear_on_submit=True):
         name = st.text_input("ထိုးသူအမည်")
@@ -108,10 +112,9 @@ with st.expander("📝 စာရင်းအသစ်သွင်းရန်"):
                 except:
                     st.error("❌ ပေးပို့မှု မအောင်မြင်ပါ။")
 
-# --- ၈။ အရောင်းဇယားနှင့် နာမည်စစ်ဆေးခြင်း ---
+# --- ၈။ အရောင်းဇယား ---
 st.divider()
 c1, c2 = st.columns([2, 1])
-
 with c1:
     st.subheader("📊 အရောင်းဇယား")
     search = st.text_input("🔎 နာမည်စစ်ရန် (ရှာရန်)")
@@ -163,4 +166,4 @@ with col_clear:
             time.sleep(1)
             st.rerun()
         except:
-            st.error("❌ ဖျက်မရပါ။ လင့်ခ်များကို ပြန်စစ်ပါ။")
+            st.error("❌ ဖျက်မရပါ။")
