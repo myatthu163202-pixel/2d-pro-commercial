@@ -8,10 +8,10 @@ import re
 # --- ၁။ Page Setup ---
 st.set_page_config(page_title="2D Agent Pro", layout="wide", page_icon="💰")
 
-# --- ၂။ VIP User စာရင်း ---
+# --- ၂။ User List ---
 USERS = {"admin": "123456", "thiri": "163202"}
 
-# --- ၃။ Storage ---
+# --- ၃။ Storage (Refresh လုပ်လည်း မပျောက်အောင်) ---
 if "user_storage" not in st.session_state:
     st.session_state["user_storage"] = {u: {"sheet": "", "script": ""} for u in USERS}
 
@@ -39,7 +39,7 @@ user_links = st.session_state["user_storage"][curr_user]
 
 # --- ၅။ Sidebar (Link များသိမ်းရန်) ---
 st.sidebar.title(f"👋 {curr_user}")
-with st.sidebar.expander("🛠 Software Setup", expanded=False):
+with st.sidebar.expander("🛠 Software Setup", expanded=True):
     in_sheet = st.text_input("Google Sheet URL", value=user_links["sheet"])
     in_script = st.text_input("Apps Script URL", value=user_links["script"])
     if st.button("✅ Save Links"):
@@ -52,24 +52,71 @@ with st.sidebar.expander("🛠 Software Setup", expanded=False):
 sheet_url = user_links["sheet"]
 script_url = user_links["script"]
 
+# Link မရှိလျှင် ရှေ့ဆက်မသွားရန်
 if not sheet_url or not script_url:
-    st.warning("💡 Setup တွင် Link များကို အရင်ထည့်ပေးပါ။")
+    st.warning("💡 အပေါ်က Setup တွင် Link များကို အရင်ထည့်ပြီး Save နှိပ်ပေးပါ။")
     st.stop()
 
-# --- ၆။ Data Loading (Syntax Error များကို ဒီမှာ အကုန်ပြင်ထားသည်) ---
+# --- ၆။ Data Loading (အချက်အလက်များ ပြန်ပေါ်လာစေရန်) ---
 def get_csv_url(url):
     m = re.search(r"/d/([^/]*)", url)
     return f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=csv" if m else None
 
 try:
     csv_url = get_csv_url(sheet_url)
-    # Line 76 Syntax Fix
+    # cachebuster ထည့်ထားခြင်းဖြင့် အမြဲတမ်း နောက်ဆုံးစာရင်းကို ရစေသည်
     df = pd.read_csv(f"{csv_url}&cachebuster={int(time.time())}")
+    # image_65826f.png နှင့် image_6514b3.png ပါ အမှားများကို ဤနေရာတွင် block အပြည့်အစုံဖြင့် ပြင်ထားသည်
     df.columns = df.columns.str.strip()
     df['Number'] = df['Number'].astype(str).str.zfill(2)
+    df['Amount'] = pd.to_numeric(df['Amount'], errors='coerce').fillna(0)
 except Exception:
-    st.error("❌ ဒေတာဆွဲမရပါ။ Link ပြန်စစ်ပါ။")
+    st.error("❌ အချက်အလက်များ ဆွဲမရပါ။ URL မှန်မမှန် ပြန်စစ်ပါ။")
     st.stop()
 
 # --- ၇။ Dashboard ---
-st.title("💰 2D Agent Pro")
+st.title(f"💰 {curr_user}'s 2D Agent Pro")
+total_in = df['Amount'].sum() if not df.empty else 0
+st.metric("စုစုပေါင်းရောင်းရငွေ", f"{total_in:,.0f} Ks")
+
+# စာရင်းသွင်းရန် Form
+with st.expander("📝 စာရင်းအသစ်သွင်းရန်"):
+    with st.form("entry_form", clear_on_submit=True):
+        name = st.text_input("နာမည်")
+        num = st.text_input("ဂဏန်း (၂ လုံး)", max_chars=2)
+        amt = st.number_input("ငွေပမာဏ", min_value=100, step=100)
+        if st.form_submit_button("✅ သိမ်းဆည်းမည်"):
+            if name and num:
+                now = datetime.now(timezone(timedelta(hours=6, minutes=30))).strftime("%I:%M %p")
+                requests.post(script_url, json={"action": "insert", "Customer": name, "Number": str(num).zfill(2), "Amount": int(amt), "Time": now})
+                st.success("သွင်းပြီးပါပြီ။")
+                time.sleep(1)
+                st.rerun()
+
+# --- ၈။ တစ်ခုချင်းဖျက်ရန်အပိုင်း (image_651592.png UI အတိုင်း) ---
+st.subheader("📊 အရောင်းစာရင်း (တစ်ခုချင်းဖျက်ရန်)")
+if not df.empty:
+    for i, row in df.iterrows():
+        col_text, col_del = st.columns([4, 1])
+        col_text.write(f"👤 {row['Customer']} | 🔢 {row['Number']} | 💵 {int(row['Amount'])} Ks")
+        
+        # တစ်ခုချင်းဖျက်ရန် ခလုတ်
+        if col_del.button("🗑 ဖျက်", key=f"del_{i}"):
+            # Header ကြောင့် Row Index ကို +2 လုပ်ခြင်း
+            target_row = int(i) + 2
+            try:
+                resp = requests.post(script_url, json={"action": "delete", "row_index": target_row})
+                if resp.status_code == 200:
+                    st.success("ဖျက်ပြီးပါပြီ။")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error("❌ Apps Script ဘက်မှ ဖျက်၍မရပါ။")
+            except Exception:
+                # image_6590d9.png နှင့် image_658db0.png ပါ ချိတ်ဆက်မှု Error များကို ကိုင်တွယ်ခြင်း
+                st.error("❌ ချိတ်ဆက်မှု Error!")
+
+# Logout
+if st.sidebar.button("🚪 Logout"):
+    st.session_state["logged_in"] = False
+    st.rerun()
