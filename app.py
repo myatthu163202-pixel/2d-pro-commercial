@@ -4,24 +4,25 @@ from datetime import datetime, timedelta, timezone
 import requests
 import time
 
-st.set_page_config(page_title="2D Agent Pro (Commercial)", layout="wide")
+# --- Page Config ---
+st.set_page_config(page_title="2D Agent Pro (Commercial)", layout="wide", page_icon="💰")
 
-# --- Software Setup (ဝယ်သူက မိမိလင့်ကို မိမိထည့်ရန်) ---
+# --- Software Setup Sidebar ---
 st.sidebar.title("🛠 Software Setup")
-with st.sidebar.expander("လင့်များ ချိတ်ဆက်ရန်", expanded=True):
-    st.info("ဝယ်ယူထားသော ကုဒ်ကို အသုံးပြုရန် အောက်ပါလင့်များ ထည့်ပေးပါ။")
+with st.sidebar.expander("🔗 လင့်များ ချိတ်ဆက်ရန်", expanded=True):
     user_sheet_url = st.text_input("1. Google Sheet URL", placeholder="https://docs.google.com/spreadsheets/d/...")
     user_script_url = st.text_input("2. Apps Script URL", placeholder="https://script.google.com/macros/s/...")
 
-# လင့်မထည့်မချင်း App ကို ပေးမသုံးပါ
+# --- လင့်ခ်များ စစ်ဆေးခြင်း အပိုင်း (Error မတက်အောင် ထိန်းထားသည်) ---
 if not user_sheet_url or not user_script_url:
-    st.markdown("### 👋 2D Agent Pro မှ ကြိုဆိုပါတယ်!\nစတင်အသုံးပြုရန် Sidebar တွင် လင့်များ အရင်ချိတ်ပေးပါ။")
+    st.info("👋 မင်္ဂလာပါ။ ဆော့ဝဲလ်စတင်ရန် Sidebar တွင် Google Sheet နှင့် Script URL တို့ကို အရင်ထည့်ပေးပါ။")
     st.stop()
 
 # ဒေတာဆွဲယူခြင်း
 try:
     csv_url = user_sheet_url.replace('/edit', '/export?format=csv')
     def load_data():
+        # Cache buster သုံးပြီး ဒေတာကို Update ဖြစ်အောင်လုပ်သည်
         url = f"{csv_url}&cachebuster={int(time.time())}"
         data = pd.read_csv(url)
         if not data.empty:
@@ -30,14 +31,14 @@ try:
             data['Amount'] = pd.to_numeric(data['Amount'], errors='coerce').fillna(0)
         return data
     df = load_data()
-except:
-    st.error("❌ Link ချိတ်ဆက်မှု မှားယွင်းနေပါသည်။ Google Sheet ကို Anyone with the link ပေးထားပါသလား ပြန်စစ်ပါ။")
+except Exception:
+    st.error("❌ Link မမှန်ကန်ပါ။ Google Sheet ကို 'Anyone with the link' ပေးထားကြောင်း သေချာပါစေ။")
     st.stop()
 
-# --- Dashboard Layout ---
+# --- Dashboard UI (မင်းသဘောကျသော ပုံစံအတိုင်း) ---
 st.title("💰 2D Agent Pro Dashboard")
 
-st.sidebar.header("⚙️ Admin & Win Check")
+st.sidebar.header("⚙️ Admin Settings")
 win_num = st.sidebar.text_input("🎰 ပေါက်ဂဏန်းရိုက်ပါ", max_chars=2)
 za_rate = st.sidebar.number_input("💰 ဇ (အဆ)", value=80)
 
@@ -54,6 +55,7 @@ with c1:
         amt = st.number_input("ငွေပမာဏ", min_value=100, step=100)
         if st.form_submit_button("✅ သိမ်းဆည်းမည်"):
             if name and num:
+                # မြန်မာစံတော်ချိန် တွက်ချက်ခြင်း
                 tz_mm = timezone(timedelta(hours=6, minutes=30))
                 now_mm = datetime.now(tz_mm).strftime("%I:%M %p")
                 
@@ -62,38 +64,42 @@ with c1:
                     "Number": str(num).zfill(2), "Amount": int(amt), "Time": now_mm
                 }
                 requests.post(user_script_url, json=payload)
-                st.success("သိမ်းပြီးပါပြီ။")
+                st.success("စာရင်းသွင်းပြီးပါပြီ။")
                 time.sleep(1)
                 st.rerun()
 
 with c2:
     st.subheader("📊 အရောင်းဇယား")
-    if st.button("🔄 Refresh"):
+    if st.button("🔄 Refresh Data"):
         st.rerun()
-    search = st.text_input("🔎 နာမည်ဖြင့်ရှာရန်")
+    search = st.text_input("🔎 နာမည်ဖြင့်ရှာဖွေရန်")
 
     if not df.empty:
         view_df = df[df['Customer'].str.contains(search, case=False, na=False)] if search else df
         st.dataframe(view_df, use_container_width=True, hide_index=True)
 
+        # ပေါက်ဂဏန်းတွက်ချက်မှု
         if win_num:
             winners = df[df['Number'] == win_num].copy()
             total_out = winners['Amount'].sum() * za_rate
             balance = total_in - total_out
             st.divider()
+            st.subheader("📈 ရလဒ်အကျဉ်းချုပ်")
             k1, k2, k3 = st.columns(3)
             k1.metric("🏆 ပေါက်သူ", f"{len(winners)} ဦး")
             k2.metric("💸 လျော်ကြေး", f"{total_out:,.0f} Ks")
             k3.metric("💹 အမြတ်/အရှုံး", f"{balance:,.0f} Ks", delta=balance)
             
             if not winners.empty:
+                st.write("🎊 **ပေါက်သူများစာရင်း -**")
                 winners['လျော်ရမည့်ငွေ'] = winners['Amount'] * za_rate
                 st.table(winners[['Customer', 'Number', 'Amount', 'လျော်ရမည့်ငွေ']])
 
+# ဖျက်ရန် အပိုင်း
 if not df.empty:
     st.divider()
     st.subheader("🗑 စာရင်းဖျက်ရန်")
-    with st.expander("တစ်ခုချင်းစီ ဖျက်ရန်"):
+    with st.expander("တစ်ခုချင်းစီ ပြန်ဖျက်ရန်"):
         for i in range(len(df)-1, -1, -1):
             r = df.iloc[i]
             col_x, col_y = st.columns([4, 1])
