@@ -8,13 +8,13 @@ import re
 # --- ၁။ Page Setup ---
 st.set_page_config(page_title="2D Agent Pro", layout="wide", page_icon="💰")
 
-# --- ၂။ Persistent Storage Logic (Refresh လုပ်လည်း လုံးဝမပျောက်စေရန်) ---
-# ဒီ Function က Browser သက်တမ်းတစ်လျှောက် Link တွေကို မှတ်ထားပေးမှာပါ
+# --- ၂။ လင့်ခ်များ သိမ်းဆည်းရန် Memory စနစ် (Refresh လုပ်လည်း မပျောက်စေရန်) ---
 @st.cache_resource
-def get_permanent_storage():
+def get_link_db():
+    # အကောင့်တစ်ခုချင်းစီအတွက် sheet နှင့် script link များကို သီးခြားစီ မှတ်ထားမည်
     return {"admin": {"sheet": "", "script": ""}, "thiri": {"sheet": "", "script": ""}}
 
-db = get_permanent_storage()
+permanent_db = get_link_db()
 
 # --- ၃။ User Database ---
 USERS = {"admin": "123456", "thiri": "163202"}
@@ -27,8 +27,8 @@ if not st.session_state["logged_in"]:
     st.markdown("<h2 style='text-align: center;'>🔐 Member Login</h2>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        u = st.text_input("Username", key="l_u")
-        p = st.text_input("Password", type="password", key="l_p")
+        u = st.text_input("Username", key="login_u")
+        p = st.text_input("Password", type="password", key="login_p")
         if st.button("Login", use_container_width=True):
             if u in USERS and USERS[u] == p:
                 st.session_state["logged_in"] = True
@@ -40,28 +40,27 @@ if not st.session_state["logged_in"]:
 
 curr_user = st.session_state["username"]
 
-# --- ၅။ Sidebar (Link များ သိမ်းဆည်းခြင်း) ---
+# --- ၅။ Sidebar (Link များ အသေသိမ်းဆည်းခြင်း) ---
 st.sidebar.title(f"👋 {curr_user}")
 
-# Permanent Storage ထဲက Link ကို ဆွဲထုတ်
-saved_sheet = db[curr_user]["sheet"]
-saved_script = db[curr_user]["script"]
+# Memory ထဲတွင် သိမ်းထားသော Link များကို ဆွဲထုတ်ခြင်း
+saved_links = permanent_db[curr_user]
 
-with st.sidebar.expander("🛠 Software Setup (Link များသိမ်းရန်)", expanded=(not saved_sheet)):
-    in_sheet = st.text_input("Google Sheet URL", value=saved_sheet)
-    in_script = st.text_input("Apps Script URL", value=saved_script)
+with st.sidebar.expander("🛠 Software Setup", expanded=(not saved_links["sheet"])):
+    in_sheet = st.text_input("Google Sheet URL", value=saved_links["sheet"])
+    in_script = st.text_input("Apps Script URL", value=saved_links["script"])
     
-    if st.button("✅ Save Links (အသေမှတ်မည်)"):
-        db[curr_user]["sheet"] = in_sheet
-        db[curr_user]["script"] = in_script
-        st.success("လင့်ခ်များကို Browser Memory ထဲ သိမ်းလိုက်ပါပြီ။ Refresh လုပ်လည်း မပျောက်တော့ပါ။")
+    if st.button("✅ Save Links Permanently"):
+        permanent_db[curr_user]["sheet"] = in_sheet
+        permanent_db[curr_user]["script"] = in_script
+        st.success("လင့်ခ်များကို မှတ်သားပြီးပါပြီ။ Refresh လုပ်လည်း မပျောက်တော့ပါ။")
         time.sleep(1)
         st.rerun()
 
-sheet_url = db[curr_user]["sheet"]
-script_url = db[curr_user]["script"]
+sheet_url = permanent_db[curr_user]["sheet"]
+script_url = permanent_db[curr_user]["script"]
 
-# ပေါက်ဂဏန်းစစ်ရန်
+# ပေါက်ဂဏန်းနှင့် ဇယားသတ်မှတ်ချက်များ
 st.sidebar.divider()
 win_num = st.sidebar.text_input("🎰 ပေါက်ဂဏန်းစစ်", max_chars=2)
 za_rate = st.sidebar.number_input("💰 ဇ (အဆ) ထည့်", value=80)
@@ -70,24 +69,24 @@ if st.sidebar.button("🚪 Logout"):
     st.session_state["logged_in"] = False
     st.rerun()
 
+# လင့်မရှိလျှင် ရှေ့ဆက်မသွားရန် တားထားခြင်း
 if not sheet_url or not script_url:
-    st.warning("💡 ဘယ်ဘက် Sidebar ရှိ Setup တွင် Link များကို အရင်သိမ်းပေးပါ။")
+    st.warning("💡 Sidebar ရှိ Setup တွင် Link များကို အရင်သိမ်းပေးပါ။")
     st.stop()
 
-# --- ၆။ Data Loading ---
+# --- ၆။ Data Loading (Syntax Fixes) ---
 def get_csv_url(url):
     m = re.search(r"/d/([^/]*)", url)
     return f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=csv" if m else None
 
 try:
     csv_url = get_csv_url(sheet_url)
-    # cachebuster သုံးပြီး data အသစ်ကို အမြဲဆွဲယူခိုင်းထားသည်
-    df = pd.read_csv(f"{csv_url}&cachebuster={int(time.time())}")
+    df = pd.read_csv(f"{csv_url}&cache={int(time.time())}")
     df.columns = df.columns.str.strip()
     df['Number'] = df['Number'].astype(str).str.zfill(2)
     df['Amount'] = pd.to_numeric(df['Amount'], errors='coerce').fillna(0)
 except Exception as e:
-    st.error("❌ ဒေတာဆွဲမရပါ။ Link မှန်/မမှန် ပြန်စစ်ပါ။")
+    st.error(f"❌ ဒေတာဆွဲမရပါ။ Link ပြန်စစ်ပါ။")
     st.stop()
 
 # --- ၇။ Main Dashboard ---
@@ -109,12 +108,13 @@ with st.expander("📝 စာရင်းအသစ်သွင်းရန်"):
                     st.success("သွင်းပြီးပါပြီ။")
                     time.sleep(1)
                     st.rerun()
-                except:
-                    st.error("❌ ပေးပို့မှု မအောင်မြင်ပါ။")
+                except Exception:
+                    st.error("❌ ပေးပို့မှု Error!")
 
-# --- ၈။ အရောင်းဇယား ---
+# --- ၈။ အရောင်းဇယားနှင့် နာမည်စစ်ခြင်း ---
 st.divider()
 c1, c2 = st.columns([2, 1])
+
 with c1:
     st.subheader("📊 အရောင်းဇယား")
     search = st.text_input("🔎 နာမည်စစ်ရန် (ရှာရန်)")
@@ -132,7 +132,7 @@ with c2:
         else:
             st.info("ပေါက်သူမရှိပါ။")
 
-# --- ၉။ ပြင်ဆင်ခြင်းနှင့် အကုန်ဖျက်ခြင်း ---
+# --- ၉။ ပြင်ဆင်ခြင်း (မဖျက်ပါ) နှင့် အကုန်ဖျက်ခြင်း ---
 st.divider()
 col_edit, col_clear = st.columns([2, 1])
 
@@ -142,28 +142,28 @@ with col_edit:
         for i, row in df.iterrows():
             with st.expander(f"👤 {row['Customer']} | 🔢 {row['Number']}"):
                 with st.form(f"edit_{i}"):
-                    u_name = st.text_input("အမည်", value=row['Customer'])
-                    u_num = st.text_input("ဂဏန်း", value=row['Number'], max_chars=2)
-                    u_amt = st.number_input("ပမာဏ", value=int(row['Amount']))
-                    if st.form_submit_button("💾 ပြင်ဆင်မှုသိမ်းမည်"):
+                    e_name = st.text_input("အမည်ပြင်ရန်", value=row['Customer'])
+                    e_num = st.text_input("ဂဏန်းပြင်ရန်", value=row['Number'], max_chars=2)
+                    e_amt = st.number_input("ပမာဏပြင်ရန်", value=int(row['Amount']))
+                    if st.form_submit_button("💾 သိမ်းဆည်းမည်"):
                         try:
                             requests.post(script_url, json={
                                 "action": "update", "row_index": int(i)+2,
-                                "Customer": u_name, "Number": str(u_num).zfill(2), "Amount": int(u_amt)
+                                "Customer": e_name, "Number": str(e_num).zfill(2), "Amount": int(e_amt)
                             })
                             st.success("ပြင်ဆင်ပြီးပါပြီ။")
                             time.sleep(0.5)
                             st.rerun()
-                        except:
+                        except Exception:
                             st.error("❌ ပြင်မရပါ။")
 
 with col_clear:
     st.subheader("⚠️ အကုန်ဖျက်ရန်")
     if st.button("🔥 စာရင်းအားလုံးဖျက်မည်", use_container_width=True):
-        try:
+        try: # try block စတင်ခြင်း
             requests.post(script_url, json={"action": "clear_all"})
             st.warning("အကုန်ဖျက်ပြီးပါပြီ။")
             time.sleep(1)
             st.rerun()
-        except:
-            st.error("❌ ဖျက်မရပါ။")
+        except Exception: # except block ထည့်သွင်း၍ Syntax Error ရှင်းထားခြင်း
+            st.error("❌ ဖျက်မရပါ။ Link ပြန်စစ်ပါ။")
