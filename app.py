@@ -74,7 +74,6 @@ if check_password():
     # ဒေတာဆွဲယူခြင်း
     try:
         def load_data():
-            # SyntaxError ကင်းစင်အောင် ကွင်းပိတ်များကို သေချာစစ်ဆေးထားသည်
             url = f"{csv_url}&cachebuster={int(time.time())}"
             data = pd.read_csv(url)
             if not data.empty:
@@ -118,7 +117,8 @@ if check_password():
 
     with c2:
         st.subheader("📊 အရောင်းဇယား")
-        if st.button("🔄 Refresh Data"): st.rerun()
+        if st.button("🔄 Refresh Data"):
+            st.rerun()
         if not df.empty:
             search = st.text_input("🔎 နာမည်ဖြင့်ရှာရန်")
             view_df = df[df['Customer'].str.contains(search, case=False, na=False)] if search else df
@@ -142,23 +142,22 @@ if check_password():
                 col_x, col_y = st.columns([4, 1])
                 col_x.write(f"👤 {row['Customer']} | 🔢 {row['Number']} | 💵 {row['Amount']} Ks")
                 
-                # key ကို unique ဖြစ်အောင် ပေးထားသည်
-                if col_y.button("ဖျက်", key=f"del_btn_{i}"):
-                    # Google Sheet Row Index (Header ကြောင့် +2)
+                # တစ်ခုချင်းဖျက်ရန်
+                if col_y.button("ဖျက်", key=f"del_row_{i}"):
+                    # Header ကြောင့် Row index ကို +2 လုပ်ခြင်း
                     target_row = int(i) + 2
                     try:
-                        # json payload ကို သေချာပို့ခြင်း
                         resp = requests.post(script_url, json={"action": "delete", "row_index": target_row})
                         if resp.status_code == 200:
-                            st.success(f"{row['Customer']} စာရင်းကို ဖျက်ပြီးပါပြီ။")
+                            st.success(f"{row['Customer']} ကို ဖျက်ပြီးပါပြီ။")
                             time.sleep(1)
                             st.rerun()
                         else:
-                            st.error("❌ Apps Script ဘက်မှ ဖျက်၍မရပါ။")
+                            st.error("❌ Apps Script Error!")
                     except Exception:
-                        st.error("❌ ချိတ်ဆက်မှု အခက်အခဲရှိနေပါသည်။")
+                        st.error("❌ ချိတ်ဆက်မှု Error!")
 
-    # အားလုံးဖျက်ရန် ခလုတ် (Sidebar)
+    # အားလုံးဖျက်ရန်
     st.sidebar.divider()
     if st.sidebar.button("⚠️ စာရင်းအားလုံးဖျက်မည်"):
         try:
@@ -166,4 +165,5 @@ if check_password():
             st.sidebar.warning("စာရင်းအားလုံး ရှင်းလင်းပြီးပါပြီ။")
             time.sleep(1)
             st.rerun()
-        except Exception
+        except Exception:
+            st.sidebar.error("❌ ချိတ်ဆက်မှု Error!")
