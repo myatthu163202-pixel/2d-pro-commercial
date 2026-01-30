@@ -14,7 +14,7 @@ USERS = {
     "thiri": "163202"
 }
 
-# --- ၃။ User Storage စနစ် (KeyError မတက်အောင် ကြိုတင်သတ်မှတ်ခြင်း) ---
+# --- ၃။ User Storage (KeyError မတက်အောင် ကြိုတင်သတ်မှတ်ခြင်း) ---
 if "user_storage" not in st.session_state:
     st.session_state["user_storage"] = {u: {"sheet": "", "script": ""} for u in USERS}
 
@@ -47,10 +47,10 @@ if check_password():
     
     with st.sidebar.expander("🛠 Software Setup (Link များ)", expanded=True):
         in_sheet = st.text_input("Google Sheet URL", value=user_links["sheet"])
-        # image_667670.png ပါ '(' was never closed error ကို ပြင်ဆင်ပြီး
+        # image_667670.png ပါ error ကို ပြင်ဆင်ပြီး
         in_script = st.text_input("Apps Script URL", value=user_links["script"])
         
-        # image_667990.png ပါ expected ':' error ကို ပြင်ဆင်ပြီး
+        # image_667990.png ပါ error ကို ပြင်ဆင်ပြီး
         if st.button("✅ Link များမှတ်ထားမည်"):
             st.session_state["user_storage"][curr_user]["sheet"] = in_sheet
             st.session_state["user_storage"][curr_user]["script"] = in_script
@@ -76,34 +76,8 @@ if check_password():
     # ဒေတာဆွဲယူခြင်း
     try:
         def load_data():
-            # image_65952f.png ပါ '(' was never closed error ကို ပြင်ဆင်ပြီး
+            # image_65952f.png ပါ error ကို ပြင်ဆင်ပြီး
             url = f"{csv_url}&cachebuster={int(time.time())}"
             data = pd.read_csv(url)
             if not data.empty:
                 data.columns = data.columns.str.strip()
-                data['Number'] = data['Number'].astype(str).str.zfill(2)
-                data['Amount'] = pd.to_numeric(data['Amount'], errors='coerce').fillna(0)
-            return data
-        df = load_data()
-    except Exception:
-        # image_65947b.png ပါ expected 'except' block error ကို ပြင်ဆင်ပြီး
-        st.error("❌ Link ချိတ်ဆက်မှု မှားယွင်းနေပါသည်။")
-        st.stop()
-
-    # --- ၅။ Dashboard Layout ---
-    st.title("💰 2D Agent Pro Dashboard")
-    
-    st.sidebar.header("⚙️ Admin Settings")
-    win_num = st.sidebar.text_input("🎰 ပေါက်ဂဏန်း", max_chars=2)
-    za_rate = st.sidebar.number_input("💰 ဇ (အဆ)", value=80)
-    
-    if st.sidebar.button("🚪 Log out"):
-        st.session_state["logged_in"] = False
-        st.rerun()
-
-    total_in = df['Amount'].sum() if not df.empty else 0
-    st.success(f"💵 စုစုပေါင်းရောင်းရငွေ: {total_in:,.0f} Ks")
-
-    c1, c2 = st.columns([1, 2])
-    with c1:
-        st.subheader("📝 စ
