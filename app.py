@@ -40,7 +40,6 @@ def check_password():
 
 if check_password():
     curr_user = st.session_state["username"]
-    # image_65fe4f.png ပါ KeyError ကို ဤနေရာတွင် ဖြေရှင်းထားသည်
     user_links = st.session_state["user_storage"][curr_user]
 
     # --- Sidebar Section ---
@@ -48,10 +47,8 @@ if check_password():
     
     with st.sidebar.expander("🛠 Software Setup (Link များ)", expanded=True):
         in_sheet = st.text_input("Google Sheet URL", value=user_links["sheet"])
-        # image_667670.png ပါ SyntaxError ကို ပြင်ဆင်ပြီး
         in_script = st.text_input("Apps Script URL", value=user_links["script"])
         
-        # image_667990.png ပါ expected ':' error ကို ပြင်ဆင်ပြီး
         if st.button("✅ Link များမှတ်ထားမည်"):
             st.session_state["user_storage"][curr_user]["sheet"] = in_sheet
             st.session_state["user_storage"][curr_user]["script"] = in_script
@@ -77,11 +74,10 @@ if check_password():
     # ဒေတာဆွဲယူခြင်း
     try:
         def load_data():
-            # image_65952f.png ပါ SyntaxError ကို ပြင်ဆင်ပြီး
+            # SyntaxError ကင်းစင်အောင် ကွင်းပိတ်များကို သေချာစစ်ဆေးထားသည်
             url = f"{csv_url}&cachebuster={int(time.time())}"
             data = pd.read_csv(url)
             if not data.empty:
-                # image_65826f.png နှင့် image_65947b.png ပါ error များအတွက် block ကို စနစ်တကျပြင်ဆင်ခြင်း
                 data.columns = data.columns.str.strip()
                 data['Number'] = data['Number'].astype(str).str.zfill(2)
                 data['Amount'] = pd.to_numeric(data['Amount'], errors='coerce').fillna(0)
@@ -107,7 +103,6 @@ if check_password():
 
     c1, c2 = st.columns([1, 2])
     with c1:
-        # image_658576.png ပါ string literal error ကို ပြင်ဆင်ပြီး
         st.subheader("📝 စာရင်းသွင်းရန်")
         with st.form("entry_form", clear_on_submit=True):
             name = st.text_input("နာမည်")
@@ -139,7 +134,7 @@ if check_password():
                 k2.metric("💸 လျော်ကြေး", f"{total_out:,.0f} Ks")
                 k3.metric("💹 အမြတ်/အရှုံး", f"{total_in - total_out:,.0f} Ks", delta=float(total_in - total_out))
 
-    # --- ၆။ စာရင်းဖျက်ခြင်း (တစ်ခုချင်းဖျက်ရန် အပိုင်း - အဓိကပြင်ဆင်ထားသည်) ---
+    # --- ၆။ စာရင်းပြုပြင်ရန်/ဖျက်ရန် (တစ်ခုချင်းဖျက်ရန် အပိုင်း) ---
     if not df.empty:
         st.divider()
         with st.expander("🗑 စာရင်းပြုပြင်ရန်/ဖျက်ရန်", expanded=True):
@@ -147,22 +142,21 @@ if check_password():
                 col_x, col_y = st.columns([4, 1])
                 col_x.write(f"👤 {row['Customer']} | 🔢 {row['Number']} | 💵 {row['Amount']} Ks")
                 
-                # တစ်ခုချင်းဖျက်ရန် ခလုတ်
-                if col_y.button("ဖျက်", key=f"del_{i}"):
+                # key ကို unique ဖြစ်အောင် ပေးထားသည်
+                if col_y.button("ဖျက်", key=f"del_btn_{i}"):
                     # Google Sheet Row Index (Header ကြောင့် +2)
                     target_row = int(i) + 2
                     try:
-                        # Apps Script ဆီသို့ action: delete နှင့် row_index ကို ပို့ပေးခြင်း
+                        # json payload ကို သေချာပို့ခြင်း
                         resp = requests.post(script_url, json={"action": "delete", "row_index": target_row})
                         if resp.status_code == 200:
-                            st.success(f"{row['Customer']} ကို ဖျက်ပြီးပါပြီ။")
+                            st.success(f"{row['Customer']} စာရင်းကို ဖျက်ပြီးပါပြီ။")
                             time.sleep(1)
                             st.rerun()
                         else:
-                            st.error("❌ Apps Script Error!")
+                            st.error("❌ Apps Script ဘက်မှ ဖျက်၍မရပါ။")
                     except Exception:
-                        # image_658db0.png နှင့် image_657dcf.png ပါ ချိတ်ဆက်မှု Error ကိုင်တွယ်ခြင်း
-                        st.error("❌ ချိတ်ဆက်မှု Error!")
+                        st.error("❌ ချိတ်ဆက်မှု အခက်အခဲရှိနေပါသည်။")
 
     # အားလုံးဖျက်ရန် ခလုတ် (Sidebar)
     st.sidebar.divider()
@@ -172,6 +166,4 @@ if check_password():
             st.sidebar.warning("စာရင်းအားလုံး ရှင်းလင်းပြီးပါပြီ။")
             time.sleep(1)
             st.rerun()
-        except Exception:
-            # image_659835.png ပါ syntax error ကို ပြင်ဆင်ပြီး
-            st.sidebar.error("❌ ချိတ်ဆက်မှု Error!")
+        except Exception
