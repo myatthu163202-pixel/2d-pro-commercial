@@ -9,7 +9,10 @@ import re
 st.set_page_config(page_title="2D Agent Pro", layout="wide", page_icon="💰")
 
 # --- ၂။ VIP User စာရင်း ---
-USERS = {"admin": "123456"}
+USERS = {
+        "admin": "123456",
+        "thiri": "163202",
+        }
 
 # --- ၃။ Link များကို Browser Memory တွင် အသေသတ်မှတ်ထားမည့်စနစ် ---
 # ဤနည်းလမ်းသည် Refresh နှိပ်သော်လည်း Link များ လုံးဝမပျောက်စေရန် အာမခံသည်
