@@ -13,10 +13,10 @@ USERS = {
     "admin": "123456"
 }
 
-# --- ၃။ လင့်ခ်များကို ဤနေရာတွင် အသေထည့်ထားပါ ---
-# မင်းရဲ့ URL လင့်ခ်တွေကို အောက်က မျက်တောင်ဖွင့်ပိတ်ထဲမှာ အစားထိုးထည့်လိုက်ပါ
-DEFAULT_SHEET_URL = "YOUR_SHEET_URL_HERE" 
-DEFAULT_SCRIPT_URL = "YOUR_SCRIPT_URL_HERE"
+# --- ၃။ လင့်ခ်များကို ဤနေရာတွင် အသေထည့်ပါ (ဒါမှ တစ်ခါထည့်ရင် ထပ်မတောင်းမှာ) ---
+# ဒီမျက်တောင်ဖွင့်ပိတ်ထဲမှာ မင်းရဲ့ လင့်ခ်အစစ်တွေကို ကူးထည့်လိုက်ပါ
+DEFAULT_SHEET_URL = "YOUR_SHEET_URL" 
+DEFAULT_SCRIPT_URL = "YOUR_SCRIPT_URL"
 
 # --- ၄။ Login စနစ် ---
 def check_password():
@@ -43,13 +43,14 @@ if check_password():
     # --- Sidebar Section ---
     st.sidebar.title(f"👋 မင်္ဂလာပါ {st.session_state['username']}")
     
-    # Setup ကို Expander ထဲမှာပဲ ထားပေးထားပါတယ် (လိုအပ်မှ ပြန်ပြင်ရန်)
-    with st.sidebar.expander("🛠 Software Setup (Link ပြောင်းရန်)", expanded=False):
+    # Setup ကို Expander ထဲမှာပဲ ထားပေးထားပါတယ်
+    with st.sidebar.expander("🛠 Software Setup (Link များ)", expanded=False):
+        # value=DEFAULT_SHEET_URL ကြောင့် အမြဲတမ်း မှတ်နေမှာပါ
         user_sheet_url = st.text_input("Google Sheet URL", value=DEFAULT_SHEET_URL)
         user_script_url = st.text_input("Apps Script URL", value=DEFAULT_SCRIPT_URL)
 
-    if not user_sheet_url or not user_script_url:
-        st.info("💡 လင့်ခ်များ အသေမထည့်ရသေးပါ။ ကုဒ်ထဲတွင် ပြန်စစ်ပါ။")
+    if not user_sheet_url or not user_script_url or user_sheet_url == "YOUR_SHEET_URL":
+        st.info("💡 GitHub ကုဒ်ထဲတွင် လင့်ခ်များကို အရင်ဆုံး အစားထိုးထည့်ပေးပါ။")
         st.stop()
 
     # URL မှ ID ကိုယူသည့် Function
@@ -77,7 +78,7 @@ if check_password():
         st.error("❌ ချိတ်ဆက်မှု မှားယွင်းနေပါသည်။")
         st.stop()
 
-    # --- ၅။ Dashboard (မင်းကြိုက်တဲ့ပုံစံအတိုင်း) ---
+    # --- ၅။ Dashboard (မင်းကြိုက်တဲ့ Layout အတိုင်း) ---
     st.title("💰 2D Agent Pro Dashboard")
     
     st.sidebar.header("⚙️ Admin Settings")
@@ -127,25 +128,4 @@ if check_password():
                 st.subheader("📈 ရလဒ်အကျဉ်းချုပ်")
                 k1, k2, k3 = st.columns(3)
                 k1.metric("🏆 ပေါက်သူ", f"{len(winners)} ဦး")
-                k2.metric("💸 လျော်ကြေး", f"{total_out:,.0f} Ks")
-                k3.metric("💹 အမြတ်/အရှုံး", f"{balance:,.0f} Ks", delta=balance)
-                if not winners.empty:
-                    winners['လျော်ရမည့်ငွေ'] = winners['Amount'] * za_rate
-                    st.table(winners[['Customer', 'Number', 'Amount', 'လျော်ရမည့်ငွေ']])
-
-    if not df.empty:
-        st.divider()
-        with st.expander("🗑 စာရင်းဖျက်ရန်"):
-            for i in range(len(df)-1, -1, -1):
-                r = df.iloc[i]
-                col_x, col_y = st.columns([4, 1])
-                col_x.write(f"👤 {r['Customer']} | 🔢 {r['Number']} | 💵 {r['Amount']} Ks")
-                if col_y.button("ဖျက်", key=f"del_{i}"):
-                    requests.post(user_script_url, json={"action": "delete", "row_index": i + 1})
-                    st.rerun()
-
-    st.sidebar.divider()
-    if st.sidebar.button("⚠️ စာရင်းအားလုံးဖျက်မည်"):
-        requests.post(user_script_url, json={"action": "clear_all"})
-        time.sleep(1)
-        st.rerun()
+                k2.metric("💸 လျော်ကြေး", f"{total_out:
