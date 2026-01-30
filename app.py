@@ -8,14 +8,13 @@ import re
 # --- ၁။ Page အပြင်အဆင် ---
 st.set_page_config(page_title="2D Agent Pro", layout="wide", page_icon="💰")
 
-# --- ၂။ VIP User စာရင်း (မင်းအခုပြထားတဲ့အတိုင်း) ---
+# --- ၂။ VIP User စာရင်း ---
 USERS = {
     "admin": "123456",
     "thiri": "163202"
 }
 
-# --- ၃။ User တစ်ယောက်ချင်းစီအတွက် သီးသန့် Memory တည်ဆောက်ခြင်း ---
-# KeyError မတက်အောင် ဤနေရာတွင် အရင်ဆုံး ကြေညာပေးရမည်
+# --- ၃။ User တစ်ယောက်ချင်းစီအတွက် သီးသန့် Memory ---
 if "user_storage" not in st.session_state:
     st.session_state["user_storage"] = {u: {"sheet": "", "script": ""} for u in USERS}
 
@@ -41,9 +40,6 @@ def check_password():
 
 if check_password():
     curr_user = st.session_state["username"]
-    
-    # လက်ရှိ User အတွက် သီးသန့် သိမ်းထားသော Link များကို ဆွဲထုတ်ခြင်း
-    # ဤနေရာတွင် image_65fe4f.png ကဲ့သို့ Error မတက်တော့ပါ
     user_links = st.session_state["user_storage"][curr_user]
 
     # --- Sidebar Section ---
@@ -54,17 +50,15 @@ if check_password():
         in_script = st.text_input("Apps Script URL", value=user_links["script"])
         
         if st.button("✅ Link များမှတ်ထားမည်"):
-            # မိမိရဲ့ သီးသန့် အကောင့်ထဲမှာပဲ Link တွေကို သိမ်းပါမည်
             st.session_state["user_storage"][curr_user]["sheet"] = in_sheet
             st.session_state["user_storage"][curr_user]["script"] = in_script
-            st.success(f"သင့်အတွက် Link များကို မှတ်သားပြီးပါပြီ။")
+            st.success("မှတ်သားပြီးပါပြီ။")
             time.sleep(1)
             st.rerun()
 
     sheet_url = user_links["sheet"]
     script_url = user_links["script"]
 
-    # Link မထည့်ရသေးရင် Dashboard မပြဘဲ စောင့်နေမည်
     if not sheet_url or not script_url:
         st.warning("💡 အပေါ်က Setup တွင် သင့်ကိုယ်ပိုင် Link များကို အရင်ထည့်ပေးပါ။")
         st.stop()
@@ -87,10 +81,10 @@ if check_password():
             return data
         df = load_data()
     except:
-        st.error("❌ Link ချိတ်ဆက်မှု မှားယွင်းနေပါသည်။")
+        st.error("❌ ချိတ်ဆက်မှု မှားယွင်းနေပါသည်။")
         st.stop()
 
-    # --- ၅။ Dashboard Layout (မင်းကြိုက်တဲ့ အချက်အလက်များ အပြည့်အစုံ) ---
+    # --- ၅။ Dashboard Layout (မင်းကြိုက်တဲ့ Layout အတိုင်း) ---
     st.title("💰 2D Agent Pro Dashboard")
     
     st.sidebar.header("⚙️ Admin Settings")
@@ -135,4 +129,22 @@ if check_password():
                 k1, k2, k3 = st.columns(3)
                 k1.metric("🏆 ပေါက်သူ", f"{len(winners)} ဦး")
                 k2.metric("💸 လျော်ကြေး", f"{total_out:,.0f} Ks")
-                k3.metric
+                k3.metric("💹 အမြတ်/အရှုံး", f"{total_in - total_out:,.0f} Ks", delta=float(total_in - total_out))
+
+    # --- ၆။ စာရင်းဖျက်သည့် အပိုင်း (အသစ်ပြန်ထည့်ပေးထားသည်) ---
+    if not df.empty:
+        st.divider()
+        with st.expander("🗑 တစ်ဦးချင်းစာရင်းဖျက်ရန်"):
+            # Row index ကို Apps Script ဆီပို့ပြီး ဖျက်ခိုင်းမည်
+            for i in range(len(df)):
+                r = df.iloc[i]
+                col_del1, col_del2 = st.columns([4, 1])
+                col_del1.write(f"👤 {r['Customer']} | 🔢 {r['Number']} | 💵 {r['Amount']} Ks")
+                if col_del2.button("ဖျက်", key=f"del_{i}"):
+                    requests.post(script_url, json={"action": "delete", "row_index": i + 2}) # Header ကြောင့် +2 လုပ်ရသည်
+                    st.success(f"{r['Customer']} ၏စာရင်းကို ဖျက်လိုက်ပါပြီ။")
+                    time.sleep(1)
+                    st.rerun()
+
+    # Sidebar တွင် အားလုံးဖျက်သည့် ခလုတ်
+    st.sidebar.divider()
