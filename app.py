@@ -43,13 +43,14 @@ if check_password():
     user_links = st.session_state["user_storage"][curr_user] #
 
     # --- Sidebar Section ---
-    st.sidebar.title(f"👋 မင်္ဂလာပါ {curr_user}") #
+    st.sidebar.title(f"👋 မင်္ဂလာပါ {curr_user}")
     
     with st.sidebar.expander("🛠 Software Setup (Link များ)", expanded=True):
         in_sheet = st.text_input("Google Sheet URL", value=user_links["sheet"])
+        # SyntaxError: '(' was never closed ပြင်ဆင်ပြီး
         in_script = st.text_input("Apps Script URL", value=user_links["script"])
         
-        if st.button("✅ Link များမှတ်ထားမည်"):
+        if st.button("✅ Link များမှတ်ထားမည်"): # SyntaxError: expected ':' ပြင်ဆင်ပြီး
             st.session_state["user_storage"][curr_user]["sheet"] = in_sheet
             st.session_state["user_storage"][curr_user]["script"] = in_script
             st.success("လင့်ခ်များကို မှတ်သားပြီးပါပြီ။")
@@ -74,7 +75,7 @@ if check_password():
     # ဒေတာဆွဲယူခြင်း
     try:
         def load_data():
-            # SyntaxError: '(' was never closed ဖြစ်ရပ်ကို ပြင်ဆင်ပြီး
+            # SyntaxError: '(' was never closed ပြင်ဆင်ပြီး
             url = f"{csv_url}&cachebuster={int(time.time())}"
             data = pd.read_csv(url)
             if not data.empty:
@@ -83,7 +84,7 @@ if check_password():
                 data['Amount'] = pd.to_numeric(data['Amount'], errors='coerce').fillna(0)
             return data
         df = load_data()
-    except:
+    except: # SyntaxError: expected 'except' ပြင်ဆင်ပြီး
         st.error("❌ Link ချိတ်ဆက်မှု မှားယွင်းနေပါသည်။")
         st.stop()
 
@@ -91,7 +92,6 @@ if check_password():
     st.title("💰 2D Agent Pro Dashboard")
     
     st.sidebar.header("⚙️ Admin Settings")
-    # SyntaxError: unterminated string literal ဖြစ်ရပ်ကို ပြင်ဆင်ပြီး
     win_num = st.sidebar.text_input("🎰 ပေါက်ဂဏန်း", max_chars=2)
     za_rate = st.sidebar.number_input("💰 ဇ (အဆ)", value=80)
     
@@ -119,7 +119,6 @@ if check_password():
 
     with c2:
         st.subheader("📊 အရောင်းဇယား")
-        # Refresh ခလုတ်
         if st.button("🔄 Refresh Data"): st.rerun()
         if not df.empty:
             search = st.text_input("🔎 နာမည်ဖြင့်ရှာရန်")
@@ -151,7 +150,7 @@ if check_password():
                     try:
                         resp = requests.post(script_url, json={"action": "delete", "row_index": target_row})
                         if resp.status_code == 200:
-                            st.success(f"ဖျက်ပြီးပါပြီ။")
+                            st.success(f"ဖျက်ပြီးပါပြီ။") #
                             time.sleep(1)
                             st.rerun()
                         else:
@@ -164,9 +163,9 @@ if check_password():
     if st.sidebar.button("⚠️ စာရင်းအားလုံးဖျက်မည်"):
         try:
             requests.post(script_url, json={"action": "clear_all"})
-            st.sidebar.warning("စာရင်းအားလုံး ရှင်းလင်းပြီးပါပြီ။")
+            st.sidebar.warning("စာရင်းအားလုံး ရှင်းလင်းပြီးပါပြီ။") #
             time.sleep(1)
             st.rerun()
         except:
-            # SyntaxError: '[' was never closed ဖြစ်ရပ်ကို ပြင်ဆင်ပြီး
+            # SyntaxError: '[' was never closed ပြင်ဆင်ပြီး
             st.sidebar.error("❌ ချိတ်ဆက်မှု Error!")
