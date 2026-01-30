@@ -13,8 +13,8 @@ USERS = {
     "admin": "123456"
 }
 
-# --- ၃။ လင့်ခ်များကို ဤနေရာတွင် အသေထည့်ပါ (ဒါမှ တစ်ခါထည့်ရင် ထပ်မတောင်းမှာ) ---
-# ဒီမျက်တောင်ဖွင့်ပိတ်ထဲမှာ မင်းရဲ့ လင့်ခ်အစစ်တွေကို ကူးထည့်လိုက်ပါ
+# --- ၃။ လင့်ခ်များကို ဤနေရာတွင် အသေထည့်ပါ (တစ်ခါထည့်ရုံဖြင့် အမြဲမှတ်နေစေရန်) ---
+# အောက်က မျက်တောင်ဖွင့်ပိတ်ထဲမှာ မင်းရဲ့ လင့်ခ်အစစ်တွေကို သေချာအစားထိုးထည့်ပါ
 DEFAULT_SHEET_URL = "YOUR_SHEET_URL" 
 DEFAULT_SCRIPT_URL = "YOUR_SCRIPT_URL"
 
@@ -27,8 +27,8 @@ def check_password():
         st.markdown("<h2 style='text-align: center;'>🔐 Member Login</h2>", unsafe_allow_html=True)
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            user = st.text_input("Username")
-            pw = st.text_input("Password", type="password")
+            user = st.text_input("Username", key="login_user")
+            pw = st.text_input("Password", type="password", key="login_pw")
             if st.button("Login", use_container_width=True):
                 if user in USERS and USERS[user] == pw:
                     st.session_state["logged_in"] = True
@@ -43,14 +43,14 @@ if check_password():
     # --- Sidebar Section ---
     st.sidebar.title(f"👋 မင်္ဂလာပါ {st.session_state['username']}")
     
-    # Setup ကို Expander ထဲမှာပဲ ထားပေးထားပါတယ်
+    # Setup ကို Expander ထဲမှာ ဖျောက်ထားပေးပါသည်
     with st.sidebar.expander("🛠 Software Setup (Link များ)", expanded=False):
-        # value=DEFAULT_SHEET_URL ကြောင့် အမြဲတမ်း မှတ်နေမှာပါ
         user_sheet_url = st.text_input("Google Sheet URL", value=DEFAULT_SHEET_URL)
         user_script_url = st.text_input("Apps Script URL", value=DEFAULT_SCRIPT_URL)
 
-    if not user_sheet_url or not user_script_url or user_sheet_url == "YOUR_SHEET_URL":
-        st.info("💡 GitHub ကုဒ်ထဲတွင် လင့်ခ်များကို အရင်ဆုံး အစားထိုးထည့်ပေးပါ။")
+    # လင့်ခ်များ အမှန်တကယ် ပါမပါ စစ်ဆေးခြင်း
+    if not user_sheet_url or "YOUR_SHEET_URL" in user_sheet_url:
+        st.warning("⚠️ Sidebar ထဲက Software Setup မှာ Link တွေအရင်ထည့်ပေးပါ။")
         st.stop()
 
     # URL မှ ID ကိုယူသည့် Function
@@ -75,10 +75,10 @@ if check_password():
             return data
         df = load_data()
     except:
-        st.error("❌ ချိတ်ဆက်မှု မှားယွင်းနေပါသည်။")
+        st.error("❌ ချိတ်ဆက်မှု မှားယွင်းနေပါသည်။ Link နှင့် Sheet Editor ပေးထားမှုကို ပြန်စစ်ပါ။")
         st.stop()
 
-    # --- ၅။ Dashboard (မင်းကြိုက်တဲ့ Layout အတိုင်း) ---
+    # --- ၅။ Dashboard Layout ---
     st.title("💰 2D Agent Pro Dashboard")
     
     st.sidebar.header("⚙️ Admin Settings")
@@ -127,5 +127,4 @@ if check_password():
                 st.divider()
                 st.subheader("📈 ရလဒ်အကျဉ်းချုပ်")
                 k1, k2, k3 = st.columns(3)
-                k1.metric("🏆 ပေါက်သူ", f"{len(winners)} ဦး")
-                k2.metric("💸 လျော်ကြေး", f"{total_out:
+                k1.metric("🏆 ပေါက်သူ",
