@@ -8,15 +8,15 @@ import re
 # --- ၁။ Page အပြင်အဆင် ---
 st.set_page_config(page_title="2D Agent Pro", layout="wide", page_icon="💰")
 
-# --- ၂။ VIP User စာရင်း (အကောင့်များ) ---
+# --- ၂။ VIP User စာရင်း ---
 USERS = {
     "admin": "123456",
     "thiri": "163202"
 }
 
-# --- ၃။ User တစ်ယောက်ချင်းစီအတွက် သီးသန့် Memory (Refresh ခံနိုင်ရည်ရှိစေရန်) ---
+# --- ၃။ User တစ်ယောက်ချင်းစီအတွက် Link Storage ---
+# KeyError မတက်အောင် ဤနေရာတွင် ကြိုတင်သတ်မှတ်ထားသည်
 if "user_storage" not in st.session_state:
-    # KeyError မတက်အောင် အရင်ဆုံး နေရာယူထားမည်
     st.session_state["user_storage"] = {u: {"sheet": "", "script": ""} for u in USERS}
 
 # --- ၄။ Login စနစ် ---
@@ -41,7 +41,7 @@ def check_password():
 
 if check_password():
     curr_user = st.session_state["username"]
-    user_links = st.session_state["user_storage"][curr_user]
+    user_links = st.session_state["user_storage"][curr_user] #
 
     # --- Sidebar Section ---
     st.sidebar.title(f"👋 မင်္ဂလာပါ {curr_user}")
@@ -51,7 +51,6 @@ if check_password():
         in_script = st.text_input("Apps Script URL", value=user_links["script"])
         
         if st.button("✅ Link များမှတ်ထားမည်"):
-            # မိမိအကောင့်အတွက် သီးသန့် Link သိမ်းဆည်းခြင်း
             st.session_state["user_storage"][curr_user]["sheet"] = in_sheet
             st.session_state["user_storage"][curr_user]["script"] = in_script
             st.success("လင့်ခ်များကို မှတ်သားပြီးပါပြီ။")
@@ -74,97 +73,4 @@ if check_password():
     # ဒေတာဆွဲယူခြင်း
     try:
         def load_data():
-            # Cache buster သုံးပြီး နောက်ဆုံးဒေတာကို ဆွဲယူမည်
-            url = f"{csv_url}&cachebuster={int(time.time())}"
-            data = pd.read_csv(url)
-            if not data.empty:
-                data.columns = data.columns.str.strip()
-                data['Number'] = data['Number'].astype(str).str.zfill(2)
-                data['Amount'] = pd.to_numeric(data['Amount'], errors='coerce').fillna(0)
-            return data
-        df = load_data()
-    except:
-        st.error("❌ Link ချိတ်ဆက်မှု မှားယွင်းနေပါသည်။")
-        st.stop()
-
-    # --- ၅။ Dashboard Layout ---
-    st.title("💰 2D Agent Pro Dashboard")
-    
-    st.sidebar.header("⚙️ Admin Settings")
-    win_num = st.sidebar.text_input("🎰 ပေါက်ဂဏန်း", max_chars=2)
-    za_rate = st.sidebar.number_input("💰 ဇ (အဆ)", value=80)
-    
-    if st.sidebar.button("🚪 Log out"):
-        st.session_state["logged_in"] = False
-        st.rerun()
-
-    total_in = df['Amount'].sum() if not df.empty else 0
-    st.success(f"💵 စုစုပေါင်းရောင်းရငွေ: {total_in:,.0f} Ks")
-
-    c1, c2 = st.columns([1, 2])
-    with c1:
-        st.subheader("📝 စာရင်းသွင်းရန်")
-        with st.form("entry_form", clear_on_submit=True):
-            name = st.text_input("နာမည်")
-            num = st.text_input("ဂဏန်း", max_chars=2)
-            amt = st.number_input("ငွေပမာဏ", min_value=100, step=100)
-            if st.form_submit_button("✅ သိမ်းဆည်းမည်"):
-                if name and num:
-                    now = datetime.now(timezone(timedelta(hours=6, minutes=30))).strftime("%I:%M %p")
-                    requests.post(script_url, json={"action": "insert", "Customer": name.strip(), "Number": str(num).zfill(2), "Amount": int(amt), "Time": now})
-                    st.success("စာရင်းသွင်းပြီးပါပြီ။")
-                    time.sleep(1)
-                    st.rerun()
-
-    with c2:
-        st.subheader("📊 အရောင်းဇယား")
-        if st.button("🔄 Refresh Data"): st.rerun()
-        if not df.empty:
-            search = st.text_input("🔎 နာမည်ဖြင့်ရှာရန်")
-            view_df = df[df['Customer'].str.contains(search, case=False, na=False)] if search else df
-            st.dataframe(view_df, use_container_width=True, hide_index=True)
-            
-            if win_num:
-                winners = df[df['Number'] == win_num].copy()
-                total_out = winners['Amount'].sum() * za_rate
-                st.divider()
-                st.subheader("📈 ရလဒ်အကျဉ်းချုပ်")
-                k1, k2, k3 = st.columns(3)
-                k1.metric("🏆 ပေါက်သူ", f"{len(winners)} ဦး")
-                k2.metric("💸 လျော်ကြေး", f"{total_out:,.0f} Ks")
-                k3.metric("💹 အမြတ်/အရှုံး", f"{total_in - total_out:,.0f} Ks", delta=float(total_in - total_out))
-
-    # --- ၆။ စာရင်းပြုပြင်ရန်/ဖျက်ရန် (အသေးစိတ်စီစစ်ပြီးသောအပိုင်း) ---
-    if not df.empty:
-        st.divider()
-        with st.expander("🗑 စာရင်းပြုပြင်ရန်/ဖျက်ရန်", expanded=True):
-            # row_index ကို အတိအကျတွက်ချက်ခြင်း
-            for i, row in df.iterrows():
-                col_x, col_y = st.columns([4, 1])
-                col_x.write(f"👤 {row['Customer']} | 🔢 {row['Number']} | 💵 {row['Amount']} Ks")
-                
-                # ခလုတ်တစ်ခုချင်းစီအတွက် key ကို unique ဖြစ်အောင် ပေးရမည်
-                if col_y.button("ဖျက်", key=f"btn_del_{i}"):
-                    # Header ကြောင့် index ကို + 2 လုပ်ရပါမည်
-                    target_row = int(i) + 2
-                    try:
-                        resp = requests.post(script_url, json={"action": "delete", "row_index": target_row})
-                        if resp.status_code == 200:
-                            st.success(f"{row['Customer']} ကို ဖျက်လိုက်ပါပြီ။")
-                            time.sleep(1)
-                            st.rerun()
-                        else:
-                            st.error("❌ ဖျက်လို့မရပါ။ Apps Script ဘက်ကို စစ်ဆေးပါ။")
-                    except:
-                        st.error("❌ ချိတ်ဆက်မှု Error တက်နေပါသည်။")
-
-    # အားလုံးဖျက်ရန် ခလုတ် (Sidebar)
-    st.sidebar.divider()
-    if st.sidebar.button("⚠️ စာရင်းအားလုံးဖျက်မည်"):
-        try:
-            requests.post(script_url, json={"action": "clear_all"})
-            st.sidebar.warning("စာရင်းအားလုံး ရှင်းလင်းပြီးပါပြီ။")
-            time.sleep(1)
-            st.rerun()
-        except:
-            st.sidebar.error("❌ ချိတ်ဆက်မှု Error!") [cite: image_
+            url = f"{csv_url}&cachebuster={int(
