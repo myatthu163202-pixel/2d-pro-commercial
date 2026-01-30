@@ -11,7 +11,7 @@ st.set_page_config(page_title="2D Agent Pro", layout="wide", page_icon="💰")
 # --- ၂။ VIP User စာရင်း ---
 USERS = {"admin": "123456"}
 
-# --- ၃။ Link များကို တစ်ခါထည့်ရုံဖြင့် မှတ်မိနေစေမည့် စနစ် ---
+# --- ၃။ Link များကို Refresh လုပ်သော်လည်း မှတ်မိနေစေရန် (Session သိမ်းခြင်း) ---
 if "stored_links" not in st.session_state:
     st.session_state["stored_links"] = {"sheet": "", "script": ""}
 
@@ -36,13 +36,10 @@ def check_password():
     return True
 
 if check_password():
-    # --- Sidebar Section (နေရာမပျောက်အောင် သေချာရေးထားသည်) ---
+    # --- Sidebar Section ---
     st.sidebar.title(f"👋 မင်္ဂလာပါ {st.session_state['username']}")
     
-    # 🛠 Software Setup (Link များကို တစ်ခါပဲ ထည့်ရန်)
+    # Software Setup (Refresh လုပ်လည်း မပျောက်အောင် value သတ်မှတ်ထားသည်)
     with st.sidebar.expander("🛠 Software Setup (Link များ)", expanded=True):
-        # ရိုက်ထားပြီးသား Link ရှိရင် အလိုအလျောက် ပြန်ပေါ်နေမည်
         in_sheet = st.text_input("Google Sheet URL", value=st.session_state["stored_links"]["sheet"])
-        in_script = st.text_input("Apps Script URL", value=st.session_state["stored_links"]["script"])
-        
-        if st.button
+        in_script = st.text_input("Apps Script URL", value=st.session
