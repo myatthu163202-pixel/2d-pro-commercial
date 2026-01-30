@@ -142,4 +142,4 @@ if st.button("🔥 စာရင်းအားလုံးဖျက်မည်"
         time.sleep(2)
         st.rerun()
     except:
-        st.error("❌ ဖျက်မရပါ။")
+        st.error("❌ Error တက်သွားပါသည်။")
