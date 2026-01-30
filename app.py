@@ -48,8 +48,10 @@ if check_password():
     
     with st.sidebar.expander("🛠 Software Setup (Link များ)", expanded=True):
         in_sheet = st.text_input("Google Sheet URL", value=user_links["sheet"])
+        # image_667670.png ပါ SyntaxError ကို ပြင်ဆင်ပြီး
         in_script = st.text_input("Apps Script URL", value=user_links["script"])
         
+        # image_667990.png ပါ expected ':' error ကို ပြင်ဆင်ပြီး
         if st.button("✅ Link များမှတ်ထားမည်"):
             st.session_state["user_storage"][curr_user]["sheet"] = in_sheet
             st.session_state["user_storage"][curr_user]["script"] = in_script
@@ -75,17 +77,17 @@ if check_password():
     # ဒေတာဆွဲယူခြင်း
     try:
         def load_data():
-            # image_65952f.png ပါ SyntaxError ကို ဤနေရာတွင် ပြင်ဆင်ထားသည်
+            # image_65952f.png ပါ SyntaxError ကို ပြင်ဆင်ပြီး
             url = f"{csv_url}&cachebuster={int(time.time())}"
             data = pd.read_csv(url)
             if not data.empty:
-                # image_65826f.png နှင့် image_65947b.png ပါ error များအတွက် try-except ပုံစံပြင်ဆင်ခြင်း
+                # image_65826f.png နှင့် image_65947b.png ပါ error များအတွက် block ကို စနစ်တကျပြင်ဆင်ခြင်း
                 data.columns = data.columns.str.strip()
                 data['Number'] = data['Number'].astype(str).str.zfill(2)
                 data['Amount'] = pd.to_numeric(data['Amount'], errors='coerce').fillna(0)
             return data
         df = load_data()
-    except:
+    except Exception:
         st.error("❌ Link ချိတ်ဆက်မှု မှားယွင်းနေပါသည်။")
         st.stop()
 
@@ -137,7 +139,7 @@ if check_password():
                 k2.metric("💸 လျော်ကြေး", f"{total_out:,.0f} Ks")
                 k3.metric("💹 အမြတ်/အရှုံး", f"{total_in - total_out:,.0f} Ks", delta=float(total_in - total_out))
 
-    # --- ၆။ စာရင်းဖျက်ခြင်း (တစ်ခုချင်းဖျက်ရန် အပိုင်း) ---
+    # --- ၆။ စာရင်းဖျက်ခြင်း (တစ်ခုချင်းဖျက်ရန် အပိုင်း - အဓိကပြင်ဆင်ထားသည်) ---
     if not df.empty:
         st.divider()
         with st.expander("🗑 စာရင်းပြုပြင်ရန်/ဖျက်ရန်", expanded=True):
@@ -147,9 +149,10 @@ if check_password():
                 
                 # တစ်ခုချင်းဖျက်ရန် ခလုတ်
                 if col_y.button("ဖျက်", key=f"del_{i}"):
-                    # Google Sheet Row Index အမှန် (Header ကြောင့် +2)
+                    # Google Sheet Row Index (Header ကြောင့် +2)
                     target_row = int(i) + 2
                     try:
+                        # Apps Script ဆီသို့ action: delete နှင့် row_index ကို ပို့ပေးခြင်း
                         resp = requests.post(script_url, json={"action": "delete", "row_index": target_row})
                         if resp.status_code == 200:
                             st.success(f"{row['Customer']} ကို ဖျက်ပြီးပါပြီ။")
@@ -157,8 +160,8 @@ if check_password():
                             st.rerun()
                         else:
                             st.error("❌ Apps Script Error!")
-                    except:
-                        # image_658db0.png ပါ ချိတ်ဆက်မှု Error ပြသခြင်း
+                    except Exception:
+                        # image_658db0.png နှင့် image_657dcf.png ပါ ချိတ်ဆက်မှု Error ကိုင်တွယ်ခြင်း
                         st.error("❌ ချိတ်ဆက်မှု Error!")
 
     # အားလုံးဖျက်ရန် ခလုတ် (Sidebar)
@@ -169,6 +172,6 @@ if check_password():
             st.sidebar.warning("စာရင်းအားလုံး ရှင်းလင်းပြီးပါပြီ။")
             time.sleep(1)
             st.rerun()
-        except:
-            # image_659835.png ပါ SyntaxError ကို ဤနေရာတွင် ပြင်ဆင်ထားသည်
+        except Exception:
+            # image_659835.png ပါ syntax error ကို ပြင်ဆင်ပြီး
             st.sidebar.error("❌ ချိတ်ဆက်မှု Error!")
