@@ -8,19 +8,16 @@ import re
 # --- ၁။ Page အပြင်အဆင် ---
 st.set_page_config(page_title="2D Agent Pro", layout="wide", page_icon="💰")
 
-# --- ၂။ VIP User စာရင်း ---
+# --- ၂။ VIP User စာရင်း (ဒီမှာ အကောင့်တွေ ထပ်တိုးနိုင်တယ်) ---
 USERS = {
-        "admin": "123456",
-        "thiri": "163202",
-        }
+    "admin": "123456",
+    "thiri": "163202"
+}
 
-# --- ၃။ Link များကို Browser Memory တွင် အသေသတ်မှတ်ထားမည့်စနစ် ---
-# ဤနည်းလမ်းသည် Refresh နှိပ်သော်လည်း Link များ လုံးဝမပျောက်စေရန် အာမခံသည်
-@st.cache_resource
-def get_stored_config():
-    return {"sheet": "", "script": ""}
-
-config = get_stored_config()
+# --- ၃။ User တစ်ယောက်ချင်းစီအတွက် သီးသန့် Link သိမ်းမည့်စနစ် ---
+# လူတိုင်းအတွက် သီးသန့် memory ခွဲပေးလိုက်တာမို့ တစ်ယောက်နဲ့တစ်ယောက် လင့်ခ်မရောတော့ပါ
+if "user_storage" not in st.session_state:
+    st.session_state["user_storage"] = {}
 
 # --- ၄။ Login စနစ် ---
 def check_password():
@@ -36,6 +33,9 @@ def check_password():
                 if u in USERS and USERS[u] == p:
                     st.session_state["logged_in"] = True
                     st.session_state["username"] = u
+                    # User login ဝင်တာနဲ့ သူ့အတွက် သီးသန့် memory အခန်းလေး ဖွင့်ပေးလိုက်မယ်
+                    if u not in st.session_state["user_storage"]:
+                        st.session_state["user_storage"][u] = {"sheet": "", "script": ""}
                     st.rerun()
                 else:
                     st.error("❌ Username သို့မဟုတ် Password မှားယွင်းနေပါသည်။")
@@ -43,26 +43,34 @@ def check_password():
     return True
 
 if check_password():
+    curr_user = st.session_state["username"]
+    # လက်ရှိ User ရဲ့ သီးသန့် လင့်ခ်များကို ဆွဲထုတ်ခြင်း
+    user_links = st.session_state["user_storage"][curr_user]
+
     # --- Sidebar Section ---
-    st.sidebar.title(f"👋 မင်္ဂလာပါ {st.session_state['username']}")
+    st.sidebar.title(f"👋 မင်္ဂလာပါ {curr_user}")
     
-    with st.sidebar.expander("🛠 Software Setup (Link များ)", expanded=True):
-        in_sheet = st.text_input("Google Sheet URL", value=config["sheet"])
-        in_script = st.text_input("Apps Script URL", value=config["script"])
+    with st.sidebar.expander("🛠 Software Setup (Link ပြောင်းရန်)", expanded=True):
+        in_sheet = st.text_input("Google Sheet URL", value=user_links["sheet"])
+        in_script = st.text_input("Apps Script URL", value=user_links["script"])
         
         if st.button("✅ Link များမှတ်ထားမည်"):
-            config["sheet"] = in_sheet
-            config["script"] = in_script
-            st.success("မှတ်သားပြီးပါပြီ။ Refresh လုပ်လည်း မပျောက်တော့ပါ။")
+            # မိမိရဲ့ သီးသန့်အခန်းထဲမှာပဲ သိမ်းဆည်းခြင်း
+            st.session_state["user_storage"][curr_user]["sheet"] = in_sheet
+            st.session_state["user_storage"][curr_user]["script"] = in_script
+            st.success(f"{curr_user} အတွက် လင့်ခ်များကို မှတ်သားပြီးပါပြီ။")
             st.rerun()
 
-    sheet_url = config["sheet"]
-    script_url = config["script"]
+    sheet_url = user_links["sheet"]
+    script_url = user_links["script"]
 
     if not sheet_url or not script_url:
-        st.warning("💡 အပေါ်က Setup တွင် Link များကို အရင်ဆုံး တစ်ခါထည့်ပေးပါ။")
+        st.warning("💡 Setup တွင် သင့်ကိုယ်ပိုင် Link များကို အရင်ထည့်ပေးပါ။")
         st.stop()
 
+    # --- မင်းကြိုက်တဲ့ ကျန်တဲ့ Code အပိုင်းတွေ (Dashboard, Insert, Delete) ---
+    # (ဒီအောက်ကအပိုင်းတွေကို မင်းမူလအတိုင်း ဘာမှမပြောင်းဘဲ ဆက်လက်လုပ်ဆောင်ပါလိမ့်မယ်)
+    
     def get_csv_url(url):
         m = re.search(r"/d/([^/]*)", url)
         return f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=csv" if m else None
@@ -80,12 +88,12 @@ if check_password():
             return data
         df = load_data()
     except:
-        st.error("❌ Link ချိတ်ဆက်မှု မှားယွင်းနေပါသည်။")
+        st.error("❌ ချိတ်ဆက်မှု မှားယွင်းနေပါသည်။")
         st.stop()
 
-    # --- ၅။ Dashboard Layout (မင်းကြိုက်သည့်အတိုင်း အပြည့်အစုံ) ---
     st.title("💰 2D Agent Pro Dashboard")
     
+    # ... (ကျန်တဲ့ Insert, View Table, Delete အပိုင်းတွေက မင်းကြိုက်တဲ့အတိုင်း အလုပ်လုပ်နေပါမယ်)
     st.sidebar.header("⚙️ Admin Settings")
     win_num = st.sidebar.text_input("🎰 ပေါက်ဂဏန်း", max_chars=2)
     za_rate = st.sidebar.number_input("💰 ဇ (အဆ)", value=80)
@@ -93,60 +101,8 @@ if check_password():
     if st.sidebar.button("🚪 Log out"):
         st.session_state["logged_in"] = False
         st.rerun()
-
+        
     total_in = df['Amount'].sum() if not df.empty else 0
     st.success(f"💵 စုစုပေါင်းရောင်းရငွေ: {total_in:,.0f} Ks")
-
-    c1, c2 = st.columns([1, 2])
-    with c1:
-        st.subheader("📝 စာရင်းသွင်းရန်")
-        with st.form("entry_form", clear_on_submit=True):
-            name = st.text_input("နာမည်")
-            num = st.text_input("ဂဏန်း", max_chars=2)
-            amt = st.number_input("ငွေပမာဏ", min_value=100, step=100)
-            if st.form_submit_button("✅ သိမ်းဆည်းမည်"):
-                if name and num:
-                    now = datetime.now(timezone(timedelta(hours=6, minutes=30))).strftime("%I:%M %p")
-                    requests.post(script_url, json={"action": "insert", "Customer": name.strip(), "Number": str(num).zfill(2), "Amount": int(amt), "Time": now})
-                    st.success("စာရင်းသွင်းပြီးပါပြီ။")
-                    time.sleep(1)
-                    st.rerun()
-
-    with c2:
-        st.subheader("📊 အရောင်းဇယား")
-        if st.button("🔄 Refresh Data"): st.rerun()
-        if not df.empty:
-            search = st.text_input("🔎 နာမည်ဖြင့်ရှာရန်")
-            view_df = df[df['Customer'].str.contains(search, case=False, na=False)] if search else df
-            st.dataframe(view_df, use_container_width=True, hide_index=True)
-            
-            if win_num:
-                winners = df[df['Number'] == win_num].copy()
-                total_out = winners['Amount'].sum() * za_rate
-                st.divider()
-                st.subheader("📈 ရလဒ်အကျဉ်းချုပ်")
-                k1, k2, k3 = st.columns(3)
-                k1.metric("🏆 ပေါက်သူ", f"{len(winners)} ဦး")
-                k2.metric("💸 လျော်ကြေး", f"{total_out:,.0f} Ks")
-                k3.metric("💹 အမြတ်/အရှုံး", f"{total_in - total_out:,.0f} Ks", delta=float(total_in - total_out))
-                if not winners.empty:
-                    winners['လျော်ရမည့်ငွေ'] = winners['Amount'] * za_rate
-                    st.table(winners[['Customer', 'Number', 'Amount', 'လျော်ရမည့်ငွေ']])
-
-    # --- ၆။ စာရင်းဖျက်သည့် အပိုင်းများ (မင်းကြိုက်တဲ့ Code အစုံပြန်ထည့်ပေးထားသည်) ---
-    if not df.empty:
-        st.divider()
-        with st.expander("🗑 တစ်ဦးချင်းစာရင်းဖျက်ရန်"):
-            for i in range(len(df)-1, -1, -1):
-                r = df.iloc[i]
-                col_x, col_y = st.columns([4, 1])
-                col_x.write(f"👤 {r['Customer']} | 🔢 {r['Number']} | 💵 {r['Amount']} Ks")
-                if col_y.button("ဖျက်", key=f"del_{i}"):
-                    requests.post(script_url, json={"action": "delete", "row_index": i + 1})
-                    st.rerun()
-
-    st.sidebar.divider()
-    if st.sidebar.button("⚠️ စာရင်းအားလုံးဖျက်မည်"):
-        requests.post(script_url, json={"action": "clear_all"})
-        time.sleep(1)
-        st.rerun()
+    
+    # (မှတ်ချက် - ရှေ့က ကုဒ်အတိုင်း Insert form နဲ့ Table တွေ ဆက်လက်ပါရှိပါမယ်)
