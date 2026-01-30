@@ -8,15 +8,11 @@ import re
 # --- ၁။ Page Setup ---
 st.set_page_config(page_title="2D Agent Pro", layout="wide", page_icon="💰")
 
-# --- ၂။ User Database (အကောင့်များ) ---
-USERS = {
-    "admin": "123456",
-    "thiri": "163202"
-}
+# --- ၂။ User Database ---
+USERS = {"admin": "123456", "thiri": "163202"}
 
-# --- ၃။ Storage (Refresh လုပ်လည်း မပျောက်အောင်) ---
+# --- ၃။ Storage (Refresh လုပ်လည်း Link မပျောက်အောင်) ---
 if "user_storage" not in st.session_state:
-    # အကောင့်တစ်ခုချင်းစီအတွက် sheet နဲ့ script link တွေကို သီးသန့်သိမ်းသည်
     st.session_state["user_storage"] = {u: {"sheet": "", "script": ""} for u in USERS}
 
 # --- ၄။ Login စနစ် ---
@@ -41,7 +37,7 @@ if not st.session_state["logged_in"]:
 curr_user = st.session_state["username"]
 user_links = st.session_state["user_storage"][curr_user]
 
-# --- ၅။ Sidebar (Setup နှင့် ပေါက်ဂဏန်း) ---
+# --- ၅။ Sidebar (Link များသိမ်းရန်) ---
 st.sidebar.title(f"👋 {curr_user}")
 with st.sidebar.expander("🛠 Software Setup", expanded=False):
     in_sheet = st.text_input("Google Sheet URL", value=user_links["sheet"])
@@ -56,7 +52,7 @@ with st.sidebar.expander("🛠 Software Setup", expanded=False):
 sheet_url = user_links["sheet"]
 script_url = user_links["script"]
 
-# Sidebar settings
+# Sidebar Settings
 st.sidebar.divider()
 win_num = st.sidebar.text_input("🎰 ပေါက်ဂဏန်း", max_chars=2)
 za_rate = st.sidebar.number_input("💰 ဇ (အဆ)", value=80)
@@ -65,9 +61,8 @@ if st.sidebar.button("🚪 Logout"):
     st.session_state["logged_in"] = False
     st.rerun()
 
-# Link မရှိလျှင် ရပ်ရန်
 if not sheet_url or not script_url:
-    st.warning("💡 ဘယ်ဘက် Setup တွင် Link များကို အရင်ထည့်ပေးပါ။")
+    st.warning("💡 Setup တွင် Link များကို အရင်ထည့်ပေးပါ။")
     st.stop()
 
 # --- ၆။ Data Loading ---
@@ -85,7 +80,7 @@ except Exception:
     st.error("❌ ဒေတာဆွဲမရပါ။ URL ပြန်စစ်ပါ။")
     st.stop()
 
-# --- ၇။ Dashboard Layout ---
+# --- ၇။ Dashboard ---
 st.title(f"💰 {curr_user}'s 2D Agent Pro")
 total_in = df['Amount'].sum() if not df.empty else 0
 st.metric("စုစုပေါင်းရောင်းရငွေ", f"{total_in:,.0f} Ks")
@@ -131,22 +126,17 @@ st.divider()
 col_del_1, col_del_2 = st.columns([2, 1])
 
 with col_del_1:
+    # ပုံ 651592 ပါအတိုင်း တစ်ခုချင်းဖျက်ရန် UI
     st.subheader("🗑 စာရင်းပြုပြင်ရန် (တစ်ခုချင်းဖျက်ရန်)")
     if not df.empty:
         for i, row in df.iterrows():
             tx, bt = st.columns([4, 1])
             tx.write(f"👤 {row['Customer']} | 🔢 {row['Number']} | 💵 {int(row['Amount'])} Ks")
+            
+            # ခလုတ်နှိပ်လျှင် ပျက်အောင် row_index ကို +2 လုပ်ပြီးပို့သည်
             if bt.button("ဖျက်", key=f"del_{i}"):
                 target_row = int(i) + 2
-                requests.post(script_url, json={"action": "delete", "row_index": target_row})
-                st.success("ဖျက်ပြီးပါပြီ။")
-                time.sleep(0.5)
-                st.rerun()
-
-with col_del_2:
-    st.subheader("⚠️ Danger Zone")
-    if st.button("🔥 စာရင်းအားလုံးဖျက်မည်", use_container_width=True):
-        requests.post(script_url, json={"action": "clear_all"})
-        st.warning("အကုန်ဖျက်ပြီးပါပြီ။")
-        time.sleep(1)
-        st.rerun()
+                try:
+                    resp = requests.post(script_url, json={"action": "delete", "row_index": target_row})
+                    if resp.status_code == 200:
+                        st.success(f"ဖျက်ပြီးပါပြီ။")
