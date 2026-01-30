@@ -9,7 +9,6 @@ import re
 st.set_page_config(page_title="2D Agent Pro (Secure)", layout="wide", page_icon="💰")
 
 # --- ၂။ VIP User စာရင်း ---
-# ဝယ်သူအသစ်ရရင် "admin": "123456" ရဲ့အောက်မှာ ကော်မာ (,) ခံပြီး တစ်ကြောင်းစီ ထပ်တိုးရုံပါပဲ။
 USERS = {
     "admin": "123456"
 }
@@ -35,21 +34,17 @@ def check_password():
         return False
     return True
 
-# Login အောင်မြင်မှ ကျန်တာတွေ ပေါ်မည်
 if check_password():
-    # --- Sidebar Section ---
+    # --- Sidebar Section (ဒီနေရာမှာ လင့်ခ်တွေကို ဖျောက်လို့ရအောင် လုပ်ထားတယ်) ---
     st.sidebar.title(f"👋 မင်္ဂလာပါ {st.session_state['username']}")
-    if st.sidebar.button("Log out"):
-        st.session_state["logged_in"] = False
-        st.rerun()
-        
-    st.sidebar.divider()
-    st.sidebar.subheader("🛠 Software Setup")
-    user_sheet_url = st.sidebar.text_input("1. Google Sheet URL", placeholder="https://docs.google.com/spreadsheets/d/...")
-    user_script_url = st.sidebar.text_input("2. Apps Script URL", placeholder="https://script.google.com/macros/s/...")
+    
+    # 🛠 Software Setup ကို Expander ထဲထည့်လိုက်တာကြောင့် ပိတ်ထားလို့ရပြီ
+    with st.sidebar.expander("🛠 Software Setup (Link များထည့်ရန်)", expanded=False):
+        user_sheet_url = st.text_input("Google Sheet URL", placeholder="https://docs.google.com/spreadsheets/d/...")
+        user_script_url = st.text_input("Apps Script URL", placeholder="https://script.google.com/macros/s/...")
 
     if not user_sheet_url or not user_script_url:
-        st.info("💡 စတင်ရန် Sidebar တွင် Google Sheet URL နှင့် Apps Script URL တို့ကို ထည့်သွင်းပေးပါ။")
+        st.info("💡 ဆော့ဝဲလ်စတင်ရန် Sidebar ထဲက Setup တွင် Link များ ထည့်ပေးပါ။")
         st.stop()
 
     # URL မှ ID ကိုပဲ သန့်စင်ယူသည့် Function
@@ -74,15 +69,19 @@ if check_password():
             return data
         df = load_data()
     except:
-        st.error("❌ Link ချိတ်ဆက်မှု မှားယွင်းနေပါသည်။ Sheet ကို 'Anyone with the link' (Editor) ပေးထားပါသလား ပြန်စစ်ပါ။")
+        st.error("❌ ချိတ်ဆက်၍မရပါ။ Link နှင့် Sheet Settings ကို ပြန်စစ်ပါ။")
         st.stop()
 
-    # --- ၄။ Main Dashboard ---
+    # --- ၄။ Main Dashboard (ကျန်တာတွေ မပြောင်းလဲပါ) ---
     st.title("💰 2D Agent Pro Dashboard")
     
     st.sidebar.header("⚙️ Admin Settings")
     win_num = st.sidebar.text_input("🎰 ပေါက်ဂဏန်း", max_chars=2)
     za_rate = st.sidebar.number_input("💰 ဇ (အဆ)", value=80)
+    
+    if st.sidebar.button("🚪 Log out"):
+        st.session_state["logged_in"] = False
+        st.rerun()
 
     total_in = df['Amount'].sum() if not df.empty else 0
     st.success(f"💵 စုစုပေါင်းရောင်းရငွေ: {total_in:,.0f} Ks")
@@ -99,14 +98,7 @@ if check_password():
                 if name and num:
                     tz_mm = timezone(timedelta(hours=6, minutes=30))
                     now_mm = datetime.now(tz_mm).strftime("%I:%M %p")
-                    
-                    payload = {
-                        "action": "insert", 
-                        "Customer": name.strip(), 
-                        "Number": str(num).zfill(2), 
-                        "Amount": int(amt), 
-                        "Time": now_mm
-                    }
+                    payload = {"action": "insert", "Customer": name.strip(), "Number": str(num).zfill(2), "Amount": int(amt), "Time": now_mm}
                     requests.post(user_script_url, json=payload)
                     st.success("စာရင်းသွင်းပြီးပါပြီ။")
                     time.sleep(1)
@@ -132,7 +124,6 @@ if check_password():
                 k1.metric("🏆 ပေါက်သူ", f"{len(winners)} ဦး")
                 k2.metric("💸 လျော်ကြေး", f"{total_out:,.0f} Ks")
                 k3.metric("💹 အမြတ်/အရှုံး", f"{balance:,.0f} Ks", delta=balance)
-                
                 if not winners.empty:
                     winners['လျော်ရမည့်ငွေ'] = winners['Amount'] * za_rate
                     st.table(winners[['Customer', 'Number', 'Amount', 'လျော်ရမည့်ငွေ']])
