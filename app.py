@@ -14,8 +14,7 @@ USERS = {
     "thiri": "163202"
 }
 
-# --- ၃။ User တစ်ယောက်ချင်းစီအတွက် Link Storage ---
-# KeyError မတက်အောင် ဤနေရာတွင် ကြိုတင်သတ်မှတ်ထားသည်
+# --- ၃။ User Storage (KeyError မတက်အောင် ဤနေရာတွင် ကြိုတင်သတ်မှတ်ရမည်) ---
 if "user_storage" not in st.session_state:
     st.session_state["user_storage"] = {u: {"sheet": "", "script": ""} for u in USERS}
 
@@ -41,7 +40,7 @@ def check_password():
 
 if check_password():
     curr_user = st.session_state["username"]
-    user_links = st.session_state["user_storage"][curr_user] #
+    user_links = st.session_state["user_storage"][curr_user]
 
     # --- Sidebar Section ---
     st.sidebar.title(f"👋 မင်္ဂလာပါ {curr_user}")
@@ -66,11 +65,17 @@ if check_password():
 
     def get_csv_url(url):
         m = re.search(r"/d/([^/]*)", url)
-        return f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=csv" if m else None
+        if m:
+            return f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=csv"
+        return None
 
     csv_url = get_csv_url(sheet_url)
 
     # ဒေတာဆွဲယူခြင်း
     try:
         def load_data():
-            url = f"{csv_url}&cachebuster={int(
+            # SyntaxError မဖြစ်အောင် ကွင်းစကွင်းပိတ်များကို သေချာပိတ်ထားသည်
+            url = f"{csv_url}&cachebuster={int(time.time())}"
+            data = pd.read_csv(url)
+            if not data.empty:
+                data
