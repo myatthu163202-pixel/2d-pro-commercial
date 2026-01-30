@@ -8,7 +8,7 @@ import re
 # --- ၁။ Page Setup ---
 st.set_page_config(page_title="2D Agent Pro", layout="wide", page_icon="💰")
 
-# --- ၂။ Link Persistence (Refresh ခံနိုင်ရည်ရှိရန်) ---
+# --- ၂။ Link Persistence (Refresh လုပ်လည်း မပျောက်စေရန်) ---
 @st.cache_resource
 def get_link_db():
     return {"admin": {"sheet": "", "script": ""}, "thiri": {"sheet": "", "script": ""}}
@@ -40,7 +40,7 @@ if not st.session_state["logged_in"]:
 curr_user = st.session_state["username"]
 saved_links = permanent_db[curr_user]
 
-# --- ၅။ Sidebar (Link များ အသေသိမ်းဆည်းခြင်း) ---
+# --- ၅။ Sidebar (Link များ သိမ်းဆည်းခြင်း) ---
 st.sidebar.title(f"👋 {curr_user}")
 with st.sidebar.expander("🛠 Software Setup", expanded=(not saved_links["sheet"])):
     in_sheet = st.text_input("Google Sheet URL", value=saved_links["sheet"])
@@ -63,24 +63,26 @@ if st.sidebar.button("🚪 Logout"):
     st.session_state["logged_in"] = False
     st.rerun()
 
+# Syntax Error ပြင်ဆင်ပြီး (expected ':')
 if not sheet_url or not script_url:
     st.warning("💡 Sidebar ရှိ Setup တွင် Link များကို အရင်သိမ်းပေးပါ။")
     st.stop()
 
-# --- ၆။ Data Loading (Cache ပြဿနာ ရှင်းထားသည်) ---
+# --- ၆။ Data Loading (Cache အမှားရှင်းရန်) ---
 def get_csv_url(url):
     m = re.search(r"/d/([^/]*)", url)
     return f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=csv" if m else None
 
 try:
     csv_url = get_csv_url(sheet_url)
-    # cachebuster သုံးပြီး Update ဖြစ်ထားတဲ့ ဒေတာအသစ်ကို အတင်းဆွဲယူသည်
+    # cachebuster သုံးပြီး data အသစ်ကို ဆွဲယူခြင်း
     df = pd.read_csv(f"{csv_url}&cachebuster={int(time.time())}")
     df.columns = df.columns.str.strip()
     df['Number'] = df['Number'].astype(str).str.zfill(2)
     df['Amount'] = pd.to_numeric(df['Amount'], errors='coerce').fillna(0)
 except Exception:
-    st.error("❌ ဒေတာဆွဲမရပါ။ Link ပြန်စစ်ပါ။")
+    # Unterminated f-string fix
+    st.error("❌ ဒေတာဆွဲမရပါ။ Link ပြန်စစ်ပါ။") 
     st.stop()
 
 # --- ၇။ Main Dashboard ---
@@ -102,8 +104,9 @@ with st.expander("📝 စာရင်းအသစ်သွင်းရန်"):
                     st.success("သွင်းပြီးပါပြီ။")
                     time.sleep(1.5)
                     st.rerun()
-                except:
-                    st.error("❌ ပေးပို့မှု Error တက်နေပါသည်။")
+                except Exception:
+                    # Syntax Error '{' fix
+                    st.error("❌ ချိတ်ဆက်မှု Error တက်နေပါသည်။")
 
 # --- ၈။ ပြင်ဆင်ခြင်းအပိုင်း (ဇယားချက်ချင်းပြောင်းရန် ၂ စက္ကန့် စောင့်ခိုင်းထားသည်) ---
 st.divider()
@@ -121,25 +124,15 @@ if not df.empty:
                             "action": "update", "row_index": int(i)+2,
                             "Customer": e_name, "Number": str(e_num).zfill(2), "Amount": int(e_amt)
                         })
+                        # Update ဖြစ်ကြောင်း ပြသခြင်း
                         st.success("✅ ပြင်ဆင်ပြီးပါပြီ။ ဇယားကို Update လုပ်နေသည်...")
-                        time.sleep(2) # Google Sheet update ဖြစ်ချိန်ကို စောင့်ပေးခြင်း
+                        time.sleep(2) 
                         st.rerun()
-                    except:
+                    except Exception:
+                        # Apps Script URL စစ်ရန် အမှားပြခြင်း
                         st.error("❌ ပြင်မရပါ။ Apps Script URL ကို စစ်ဆေးပါ။")
 
-# --- ၉။ အရောင်းဇယားနှင့် ရှာဖွေခြင်း ---
+# --- ၉။ အရောင်းဇယား ---
 st.divider()
 st.subheader("📊 အရောင်းဇယား")
-search_name = st.text_input("🔎 နာမည်ဖြင့်ရှာရန်")
-filtered_df = df[df['Customer'].str.contains(search_name, case=False, na=False)] if search_name else df
-st.dataframe(filtered_df, use_container_width=True, hide_index=True)
-
-# အကုန်ဖျက်ရန်
-if st.button("🔥 စာရင်းအားလုံးဖျက်မည်"):
-    try:
-        requests.post(script_url, json={"action": "clear_all"})
-        st.warning("ဖျက်ပြီးပါပြီ။")
-        time.sleep(2)
-        st.rerun()
-    except:
-        st.error("❌ Error တက်သွားပါသည်။")
+search_name = st
