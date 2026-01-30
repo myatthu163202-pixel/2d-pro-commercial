@@ -79,4 +79,81 @@ try:
     df['Number'] = df['Number'].astype(str).str.zfill(2)
     df['Amount'] = pd.to_numeric(df['Amount'], errors='coerce').fillna(0)
 except Exception as e:
-    st.error(f"❌ ဒေတာဆွဲမရပါ။ Link ပြန်စစ်ပါ။ (
+    st.error(f"❌ ဒေတာဆွဲမရပါ။ Link ပြန်စစ်ပါ။ (Error: {e})")
+    st.stop()
+
+# --- ၇။ Main Dashboard & Form ---
+st.title(f"💰 {curr_user}'s 2D Agent Pro")
+total_in = df['Amount'].sum() if not df.empty else 0
+st.metric("စုစုပေါင်းရောင်းရငွေ", f"{total_in:,.0f} Ks")
+
+with st.expander("📝 စာရင်းအသစ်သွင်းရန်"):
+    # image_643edc.png ပါ ':' ကျန်ခဲ့သော error ကို ဤနေရာတွင် ပြင်ထားသည်
+    with st.form("entry_form", clear_on_submit=True):
+        name = st.text_input("ထိုးသူအမည်")
+        num = st.text_input("ထိုးမည်ဂဏန်း", max_chars=2)
+        amt = st.number_input("ပိုက်ဆံပမာဏ", min_value=100, step=100)
+        if st.form_submit_button("✅ သိမ်းဆည်းမည်"):
+            if name and num:
+                # မြန်မာစံတော်ချိန် (UTC+6:30)
+                mm_time = datetime.now(timezone(timedelta(hours=6, minutes=30))).strftime("%I:%M %p")
+                try:
+                    requests.post(script_url, json={"action": "insert", "Customer": name, "Number": str(num).zfill(2), "Amount": int(amt), "Time": mm_time})
+                    st.success("သွင်းပြီးပါပြီ။")
+                    time.sleep(1)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ သွင်းမရပါ - {e}")
+
+# --- ၈။ အရောင်းဇယားနှင့် ပေါက်သူစစ်ဆေးခြင်း ---
+st.divider()
+c1, c2 = st.columns([2, 1])
+
+with c1:
+    st.subheader("📊 အရောင်းဇယား")
+    search = st.text_input("🔎 နာမည်စစ်ရန် (ရှာရန်)")
+    view_df = df[df['Customer'].str.contains(search, case=False, na=False)] if search else df
+    st.dataframe(view_df, use_container_width=True, hide_index=True)
+
+with c2:
+    if win_num:
+        st.subheader("🏆 ပေါက်သူများ")
+        winners = df[df['Number'] == win_num].copy()
+        if not winners.empty:
+            winners['Prize'] = winners['Amount'] * za_rate
+            st.table(winners[['Customer', 'Amount', 'Prize']])
+            st.error(f"စုစုပေါင်းလျော်ကြေး: {winners['Prize'].sum():,.0f} Ks")
+        else:
+            st.info("ပေါက်သူမရှိပါ။")
+
+# --- ၉။ တစ်ခုချင်းစာရင်းပြင်ဆင်ခြင်း (မဖျက်ပါ) နှင့် အကုန်ဖျက်ခြင်း ---
+st.divider()
+st.subheader("⚙️ စာရင်းစီမံခန့်ခွဲခြင်း")
+col_edit, col_clear = st.columns([2, 1])
+
+with col_edit:
+    st.write("📝 **တစ်ခုချင်းစီ ပြင်ဆင်ရန် (မဖျက်ပါ)**")
+    if not df.empty:
+        for i, row in df.iterrows():
+            with st.expander(f"👤 {row['Customer']} | 🔢 {row['Number']} | 💵 {int(row['Amount'])} Ks"):
+                with st.form(f"edit_form_{i}"):
+                    u_name = st.text_input("အမည်ပြင်ရန်", value=row['Customer'])
+                    u_num = st.text_input("ဂဏန်းပြင်ရန်", value=row['Number'], max_chars=2)
+                    u_amt = st.number_input("ပမာဏပြင်ရန်", value=int(row['Amount']))
+                    if st.form_submit_button("💾 ပြင်ဆင်မှုသိမ်းမည်"):
+                        target_row = int(i) + 2
+                        try:
+                            # image_643450.png ပါ ချိတ်ဆက်မှု Error မတက်အောင် စနစ်တကျ ပြင်ဆင်ထားသည်
+                            resp = requests.post(script_url, json={
+                                "action": "update", 
+                                "row_index": target_row,
+                                "Customer": u_name,
+                                "Number": str(u_num).zfill(2),
+                                "Amount": int(u_amt)
+                            })
+                            if resp.status_code == 200:
+                                st.success("ပြင်ဆင်ပြီးပါပြီ။")
+                                time.sleep(0.5)
+                                st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ ချိတ်ဆက်မှု Error! - {
