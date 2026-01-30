@@ -11,9 +11,13 @@ st.set_page_config(page_title="2D Agent Pro", layout="wide", page_icon="💰")
 # --- ၂။ VIP User စာရင်း ---
 USERS = {"admin": "123456"}
 
-# --- ၃။ Link များကို တစ်ခါထည့်ရုံဖြင့် မှတ်မိနေစေမည့် စနစ် ---
-if "stored_links" not in st.session_state:
-    st.session_state["stored_links"] = {"sheet": "", "script": ""}
+# --- ၃။ Link များကို Browser Memory တွင် အသေသတ်မှတ်ထားမည့်စနစ် ---
+# ဤနည်းလမ်းသည် Refresh နှိပ်သော်လည်း Link များ လုံးဝမပျောက်စေရန် အာမခံသည်
+@st.cache_resource
+def get_stored_config():
+    return {"sheet": "", "script": ""}
+
+config = get_stored_config()
 
 # --- ၄။ Login စနစ် ---
 def check_password():
@@ -39,23 +43,19 @@ if check_password():
     # --- Sidebar Section ---
     st.sidebar.title(f"👋 မင်္ဂလာပါ {st.session_state['username']}")
     
-    # Software Setup (Refresh လုပ်လည်း မပျောက်အောင် Session သိမ်းထားသည်)
     with st.sidebar.expander("🛠 Software Setup (Link များ)", expanded=True):
-        # အရင်ထည့်ထားဖူးတဲ့ Link ရှိရင် အလိုအလျောက် ပြန်ပေါ်နေမည်
-        in_sheet = st.text_input("Google Sheet URL", value=st.session_state["stored_links"]["sheet"])
-        in_script = st.text_input("Apps Script URL", value=st.session_state["stored_links"]["script"])
+        in_sheet = st.text_input("Google Sheet URL", value=config["sheet"])
+        in_script = st.text_input("Apps Script URL", value=config["script"])
         
-        # Link သိမ်းသည့် ခလုတ်
         if st.button("✅ Link များမှတ်ထားမည်"):
-            st.session_state["stored_links"]["sheet"] = in_sheet
-            st.session_state["stored_links"]["script"] = in_script
-            st.success("လင့်ခ်များကို မှတ်သားပြီးပါပြီ။")
+            config["sheet"] = in_sheet
+            config["script"] = in_script
+            st.success("မှတ်သားပြီးပါပြီ။ Refresh လုပ်လည်း မပျောက်တော့ပါ။")
             st.rerun()
 
-    sheet_url = st.session_state["stored_links"]["sheet"]
-    script_url = st.session_state["stored_links"]["script"]
+    sheet_url = config["sheet"]
+    script_url = config["script"]
 
-    # Link မရှိသေးရင် ရှေ့ဆက်မပြဘဲ စောင့်နေမည်
     if not sheet_url or not script_url:
         st.warning("💡 အပေါ်က Setup တွင် Link များကို အရင်ဆုံး တစ်ခါထည့်ပေးပါ။")
         st.stop()
@@ -66,7 +66,6 @@ if check_password():
 
     csv_url = get_csv_url(sheet_url)
 
-    # ဒေတာဆွဲယူခြင်း (Error ကင်းစေရန် ပြင်ဆင်ထားသည်)
     try:
         def load_data():
             url = f"{csv_url}&cachebuster={int(time.time())}"
@@ -81,7 +80,7 @@ if check_password():
         st.error("❌ Link ချိတ်ဆက်မှု မှားယွင်းနေပါသည်။")
         st.stop()
 
-    # --- ၅။ Dashboard Layout (မင်းကြိုက်တဲ့အတိုင်း) ---
+    # --- ၅။ Dashboard Layout (မင်းကြိုက်သည့်အတိုင်း အပြည့်အစုံ) ---
     st.title("💰 2D Agent Pro Dashboard")
     
     st.sidebar.header("⚙️ Admin Settings")
@@ -117,6 +116,7 @@ if check_password():
             search = st.text_input("🔎 နာမည်ဖြင့်ရှာရန်")
             view_df = df[df['Customer'].str.contains(search, case=False, na=False)] if search else df
             st.dataframe(view_df, use_container_width=True, hide_index=True)
+            
             if win_num:
                 winners = df[df['Number'] == win_num].copy()
                 total_out = winners['Amount'].sum() * za_rate
@@ -126,3 +126,24 @@ if check_password():
                 k1.metric("🏆 ပေါက်သူ", f"{len(winners)} ဦး")
                 k2.metric("💸 လျော်ကြေး", f"{total_out:,.0f} Ks")
                 k3.metric("💹 အမြတ်/အရှုံး", f"{total_in - total_out:,.0f} Ks", delta=float(total_in - total_out))
+                if not winners.empty:
+                    winners['လျော်ရမည့်ငွေ'] = winners['Amount'] * za_rate
+                    st.table(winners[['Customer', 'Number', 'Amount', 'လျော်ရမည့်ငွေ']])
+
+    # --- ၆။ စာရင်းဖျက်သည့် အပိုင်းများ (မင်းကြိုက်တဲ့ Code အစုံပြန်ထည့်ပေးထားသည်) ---
+    if not df.empty:
+        st.divider()
+        with st.expander("🗑 တစ်ဦးချင်းစာရင်းဖျက်ရန်"):
+            for i in range(len(df)-1, -1, -1):
+                r = df.iloc[i]
+                col_x, col_y = st.columns([4, 1])
+                col_x.write(f"👤 {r['Customer']} | 🔢 {r['Number']} | 💵 {r['Amount']} Ks")
+                if col_y.button("ဖျက်", key=f"del_{i}"):
+                    requests.post(script_url, json={"action": "delete", "row_index": i + 1})
+                    st.rerun()
+
+    st.sidebar.divider()
+    if st.sidebar.button("⚠️ စာရင်းအားလုံးဖျက်မည်"):
+        requests.post(script_url, json={"action": "clear_all"})
+        time.sleep(1)
+        st.rerun()
