@@ -11,7 +11,7 @@ st.set_page_config(page_title="2D Agent Pro", layout="wide", page_icon="💰")
 # --- ၂။ VIP User စာရင်း ---
 USERS = {"admin": "123456", "thiri": "163202"}
 
-# --- ၃။ Storage (Refresh လုပ်လည်း မပျောက်အောင်) ---
+# --- ၃။ Storage ---
 if "user_storage" not in st.session_state:
     st.session_state["user_storage"] = {u: {"sheet": "", "script": ""} for u in USERS}
 
@@ -53,17 +53,23 @@ sheet_url = user_links["sheet"]
 script_url = user_links["script"]
 
 if not sheet_url or not script_url:
-    st.warning("💡 အပေါ်က Setup တွင် Link များကို အရင်ထည့်ပေးပါ။")
+    st.warning("💡 Setup တွင် Link များကို အရင်ထည့်ပေးပါ။")
     st.stop()
 
-# --- ၆။ Data Loading ---
+# --- ၆။ Data Loading (Syntax Error များကို ဒီမှာ အကုန်ပြင်ထားသည်) ---
 def get_csv_url(url):
     m = re.search(r"/d/([^/]*)", url)
     return f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=csv" if m else None
 
 try:
-    # image_65952f.png ပါ Syntax Error ကို ဤနေရာတွင် ပြင်ဆင်ထားသည်
     csv_url = get_csv_url(sheet_url)
+    # Line 76 Syntax Fix
     df = pd.read_csv(f"{csv_url}&cachebuster={int(time.time())}")
-    # image_65826f.png ပါ Syntax Error ကို ဤနေရာတွင် ပြင်ဆင်ထားသည်
-    df.columns
+    df.columns = df.columns.str.strip()
+    df['Number'] = df['Number'].astype(str).str.zfill(2)
+except Exception:
+    st.error("❌ ဒေတာဆွဲမရပါ။ Link ပြန်စစ်ပါ။")
+    st.stop()
+
+# --- ၇။ Dashboard ---
+st.title("💰 2D Agent Pro")
