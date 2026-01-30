@@ -13,7 +13,12 @@ USERS = {
     "admin": "123456"
 }
 
-# --- ၃။ Login စနစ် ---
+# --- ၃။ လင့်ခ်များကို ဤနေရာတွင် အသေထည့်ထားပါ ---
+# မင်းရဲ့ URL လင့်ခ်တွေကို အောက်က မျက်တောင်ဖွင့်ပိတ်ထဲမှာ အစားထိုးထည့်လိုက်ပါ
+DEFAULT_SHEET_URL = "YOUR_SHEET_URL_HERE" 
+DEFAULT_SCRIPT_URL = "YOUR_SCRIPT_URL_HERE"
+
+# --- ၄။ Login စနစ် ---
 def check_password():
     if "logged_in" not in st.session_state:
         st.session_state["logged_in"] = False
@@ -35,19 +40,19 @@ def check_password():
     return True
 
 if check_password():
-    # --- Sidebar Section (ဒီနေရာမှာ လင့်ခ်တွေကို ဖျောက်လို့ရအောင် လုပ်ထားတယ်) ---
+    # --- Sidebar Section ---
     st.sidebar.title(f"👋 မင်္ဂလာပါ {st.session_state['username']}")
     
-    # 🛠 Software Setup ကို Expander ထဲထည့်လိုက်တာကြောင့် ပိတ်ထားလို့ရပြီ
-    with st.sidebar.expander("🛠 Software Setup (Link များထည့်ရန်)", expanded=False):
-        user_sheet_url = st.text_input("Google Sheet URL", placeholder="https://docs.google.com/spreadsheets/d/...")
-        user_script_url = st.text_input("Apps Script URL", placeholder="https://script.google.com/macros/s/...")
+    # Setup ကို Expander ထဲမှာပဲ ထားပေးထားပါတယ် (လိုအပ်မှ ပြန်ပြင်ရန်)
+    with st.sidebar.expander("🛠 Software Setup (Link ပြောင်းရန်)", expanded=False):
+        user_sheet_url = st.text_input("Google Sheet URL", value=DEFAULT_SHEET_URL)
+        user_script_url = st.text_input("Apps Script URL", value=DEFAULT_SCRIPT_URL)
 
     if not user_sheet_url or not user_script_url:
-        st.info("💡 ဆော့ဝဲလ်စတင်ရန် Sidebar ထဲက Setup တွင် Link များ ထည့်ပေးပါ။")
+        st.info("💡 လင့်ခ်များ အသေမထည့်ရသေးပါ။ ကုဒ်ထဲတွင် ပြန်စစ်ပါ။")
         st.stop()
 
-    # URL မှ ID ကိုပဲ သန့်စင်ယူသည့် Function
+    # URL မှ ID ကိုယူသည့် Function
     def get_csv_url(url):
         sheet_id_match = re.search(r"/d/([^/]*)", url)
         if sheet_id_match:
@@ -69,10 +74,10 @@ if check_password():
             return data
         df = load_data()
     except:
-        st.error("❌ ချိတ်ဆက်၍မရပါ။ Link နှင့် Sheet Settings ကို ပြန်စစ်ပါ။")
+        st.error("❌ ချိတ်ဆက်မှု မှားယွင်းနေပါသည်။")
         st.stop()
 
-    # --- ၄။ Main Dashboard (ကျန်တာတွေ မပြောင်းလဲပါ) ---
+    # --- ၅။ Dashboard (မင်းကြိုက်တဲ့ပုံစံအတိုင်း) ---
     st.title("💰 2D Agent Pro Dashboard")
     
     st.sidebar.header("⚙️ Admin Settings")
