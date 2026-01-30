@@ -13,8 +13,8 @@ USERS = {
     "admin": "123456"
 }
 
-# --- ၃။ လင့်ခ်များကို ဤနေရာတွင် အသေထည့်ပါ (တစ်ခါထည့်ရုံဖြင့် အမြဲမှတ်နေစေရန်) ---
-# အောက်က မျက်တောင်ဖွင့်ပိတ်ထဲမှာ မင်းရဲ့ လင့်ခ်အစစ်တွေကို သေချာအစားထိုးထည့်ပါ
+# --- ၃။ လင့်ခ်များကို ဤနေရာတွင် အသေထည့်ပါ ---
+# အောက်က မျက်တောင်ဖွင့်ပိတ်ထဲမှာ မင်းရဲ့လင့်ခ်အစစ်တွေကို ထည့်လိုက်ရင် တစ်သက်လုံး ထပ်ထည့်စရာမလိုတော့ဘူး
 DEFAULT_SHEET_URL = "YOUR_SHEET_URL" 
 DEFAULT_SCRIPT_URL = "YOUR_SCRIPT_URL"
 
@@ -43,14 +43,14 @@ if check_password():
     # --- Sidebar Section ---
     st.sidebar.title(f"👋 မင်္ဂလာပါ {st.session_state['username']}")
     
-    # Setup ကို Expander ထဲမှာ ဖျောက်ထားပေးပါသည်
+    # Setup ကို Expander ထဲမှာ အမြဲမှတ်မိနေအောင် လုပ်ထားတယ်
     with st.sidebar.expander("🛠 Software Setup (Link များ)", expanded=False):
         user_sheet_url = st.text_input("Google Sheet URL", value=DEFAULT_SHEET_URL)
         user_script_url = st.text_input("Apps Script URL", value=DEFAULT_SCRIPT_URL)
 
-    # လင့်ခ်များ အမှန်တကယ် ပါမပါ စစ်ဆေးခြင်း
-    if not user_sheet_url or "YOUR_SHEET_URL" in user_sheet_url:
-        st.warning("⚠️ Sidebar ထဲက Software Setup မှာ Link တွေအရင်ထည့်ပေးပါ။")
+    # လင့်ခ်မထည့်ရသေးရင် Error ပြပေးမယ်
+    if not user_sheet_url or not user_script_url or user_sheet_url == "YOUR_SHEET_URL":
+        st.warning("⚠️ GitHub ကုဒ်ထဲတွင် လင့်ခ်များကို အရင်ဆုံး အစားထိုးထည့်ပေးပါ။")
         st.stop()
 
     # URL မှ ID ကိုယူသည့် Function
@@ -66,65 +66,3 @@ if check_password():
     # ဒေတာဆွဲယူခြင်း
     try:
         def load_data():
-            url = f"{csv_clean_url}&cachebuster={int(time.time())}"
-            data = pd.read_csv(url)
-            if not data.empty:
-                data.columns = data.columns.str.strip()
-                data['Number'] = data['Number'].astype(str).str.zfill(2)
-                data['Amount'] = pd.to_numeric(data['Amount'], errors='coerce').fillna(0)
-            return data
-        df = load_data()
-    except:
-        st.error("❌ ချိတ်ဆက်မှု မှားယွင်းနေပါသည်။ Link နှင့် Sheet Editor ပေးထားမှုကို ပြန်စစ်ပါ။")
-        st.stop()
-
-    # --- ၅။ Dashboard Layout ---
-    st.title("💰 2D Agent Pro Dashboard")
-    
-    st.sidebar.header("⚙️ Admin Settings")
-    win_num = st.sidebar.text_input("🎰 ပေါက်ဂဏန်း", max_chars=2)
-    za_rate = st.sidebar.number_input("💰 ဇ (အဆ)", value=80)
-    
-    if st.sidebar.button("🚪 Log out"):
-        st.session_state["logged_in"] = False
-        st.rerun()
-
-    total_in = df['Amount'].sum() if not df.empty else 0
-    st.success(f"💵 စုစုပေါင်းရောင်းရငွေ: {total_in:,.0f} Ks")
-
-    c1, c2 = st.columns([1, 2])
-
-    with c1:
-        st.subheader("📝 စာရင်းသွင်းရန်")
-        with st.form("entry_form", clear_on_submit=True):
-            name = st.text_input("နာမည်")
-            num = st.text_input("ဂဏန်း (00-99)", max_chars=2)
-            amt = st.number_input("ငွေပမာဏ", min_value=100, step=100)
-            if st.form_submit_button("✅ သိမ်းဆည်းမည်"):
-                if name and num:
-                    tz_mm = timezone(timedelta(hours=6, minutes=30))
-                    now_mm = datetime.now(tz_mm).strftime("%I:%M %p")
-                    payload = {"action": "insert", "Customer": name.strip(), "Number": str(num).zfill(2), "Amount": int(amt), "Time": now_mm}
-                    requests.post(user_script_url, json=payload)
-                    st.success("စာရင်းသွင်းပြီးပါပြီ။")
-                    time.sleep(1)
-                    st.rerun()
-
-    with c2:
-        st.subheader("📊 အရောင်းဇယား")
-        if st.button("🔄 Refresh Data"):
-            st.rerun()
-            
-        if not df.empty:
-            search = st.text_input("🔎 နာမည်ဖြင့်ရှာရန်")
-            view_df = df[df['Customer'].str.contains(search, case=False, na=False)] if search else df
-            st.dataframe(view_df, use_container_width=True, hide_index=True)
-
-            if win_num:
-                winners = df[df['Number'] == win_num].copy()
-                total_out = winners['Amount'].sum() * za_rate
-                balance = total_in - total_out
-                st.divider()
-                st.subheader("📈 ရလဒ်အကျဉ်းချုပ်")
-                k1, k2, k3 = st.columns(3)
-                k1.metric("🏆 ပေါက်သူ",
