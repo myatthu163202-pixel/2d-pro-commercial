@@ -8,17 +8,18 @@ import re
 # --- ၁။ Page Setup ---
 st.set_page_config(page_title="2D Agent Pro", layout="wide", page_icon="💰")
 
-# --- ၂။ Persistent DB (Refresh လုပ်လည်း လင့်ခ်မပျောက်ရန်) ---
+# --- ၂။ Link Persistence (Refresh လုပ်လည်း မပျောက်စေရန်) ---
 @st.cache_resource
-def get_permanent_db():
+def get_user_storage():
+    # admin နှင့် thiri အတွက် သီးခြား sheet သိမ်းရန် နေရာ
     return {
         "admin": {"sheet": "", "script": ""},
         "thiri": {"sheet": "", "script": ""}
     }
 
-user_db = get_permanent_db()
+user_db = get_user_storage()
 
-# --- ၃။ Login System ---
+# --- ၃။ Login စနစ် ---
 USERS = {"admin": "123456", "thiri": "163202"}
 
 if "logged_in" not in st.session_state:
@@ -41,15 +42,16 @@ if not st.session_state["logged_in"]:
 
 curr_user = st.session_state["username"]
 
-# --- ၄။ Sidebar Setup ---
+# --- ၄။ Sidebar (Settings & Tools) ---
 st.sidebar.title(f"👋 {curr_user}")
-with st.sidebar.expander("🛠 Software Setup"):
+
+with st.sidebar.expander("🛠 Software Setup", expanded=(not user_db[curr_user]["sheet"])):
     in_sheet = st.text_input("Google Sheet URL", value=user_db[curr_user]["sheet"])
     in_script = st.text_input("Apps Script URL", value=user_db[curr_user]["script"])
     if st.button("✅ Save Links Permanently"):
         user_db[curr_user]["sheet"] = in_sheet
         user_db[curr_user]["script"] = in_script
-        st.success("လင့်ခ်များကို မှတ်သားပြီးပါပြီ။")
+        st.success("သိမ်းဆည်းပြီးပါပြီ။ Refresh လုပ်လည်း မပျောက်တော့ပါ။")
         time.sleep(1)
         st.rerun()
 
@@ -65,17 +67,17 @@ if st.sidebar.button("🚪 Logout"):
     st.rerun()
 
 if not sheet_url or not script_url:
-    st.warning("💡 Sidebar ရှိ Setup တွင် Link များကို အရင်သိမ်းပေးပါ။")
+    st.warning("💡 Sidebar ရှိ Setup တွင် Link များကို အရင်ထည့်ပေးပါ။")
     st.stop()
 
-# --- ၅။ Data Loading (Cache-busting) ---
+# --- ၅။ Data Loading (Cache Buster သုံးထားသည်) ---
 def get_csv_url(url):
     m = re.search(r"/d/([^/]*)", url)
     return f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=csv" if m else None
 
 try:
     csv_url = get_csv_url(sheet_url)
-    # cachebuster ဖြင့် အသစ်ဆုံးဒေတာကို ဆွဲယူခြင်း
+    # cachebuster ဖြင့် ဒေတာအသစ်ကို အမြဲဆွဲယူသည်
     df = pd.read_csv(f"{csv_url}&cachebuster={int(time.time())}")
     df.columns = df.columns.str.strip()
     df['Number'] = df['Number'].astype(str).str.zfill(2)
@@ -85,51 +87,46 @@ except Exception:
     st.stop()
 
 # --- ၆။ Main Dashboard ---
-st.title(f"📊 {curr_user}'s 2D Agent Pro")
+st.title(f"💰 {curr_user}'s 2D Pro Dashboard")
 total_in = df['Amount'].sum() if not df.empty else 0
 st.metric("စုစုပေါင်းရောင်းရငွေ", f"{total_in:,.0f} Ks")
 
-# စာရင်းအသစ်သွင်းခြင်း
+# စာရင်းအသစ်သွင်းခြင်း (မြန်မာစံတော်ချိန်ဖြင့်)
 with st.expander("📝 စာရင်းအသစ်သွင်းရန်", expanded=True):
     with st.form("entry_form", clear_on_submit=True):
-        col_1, col_2, col_3 = st.columns(3)
-        with col_1: f_name = st.text_input("ထိုးသူအမည်")
-        with col_2: f_num = st.text_input("ထိုးမည်ဂဏန်း", max_chars=2)
-        with col_3: f_amt = st.number_input("ပိုက်ဆံပမာဏ", min_value=100, step=100)
-        
+        col1, col2, col3 = st.columns(3)
+        with col1: f_name = st.text_input("ထိုးသူအမည်")
+        with col2: f_num = st.text_input("ထိုးမည်ဂဏန်း", max_chars=2)
+        with col3: f_amt = st.number_input("ပိုက်ဆံပမာဏ", min_value=100, step=100)
         if st.form_submit_button("✅ သိမ်းဆည်းမည်"):
             if f_name and f_num:
-                # Syntax Fix: မြန်မာစံတော်ချိန် အတိအကျယူခြင်း
-                now_mm = datetime.now(timezone(timedelta(hours=6, minutes=30)))
-                mm_time = now_mm.strftime("%I:%M %p")
+                # Syntax fix: မြန်မာစံတော်ချိန် ယူပုံ
+                mm_time = datetime.now(timezone(timedelta(hours=6, minutes=30))).strftime("%I:%M %p")
                 try:
                     requests.post(script_url, json={"action": "insert", "Customer": f_name, "Number": str(f_num).zfill(2), "Amount": int(f_amt), "Time": mm_time})
                     st.success("သွင်းပြီးပါပြီ။")
                     time.sleep(1.5)
                     st.rerun()
                 except Exception as e:
+                    # Syntax fix: brackets and quotes
                     st.error(f"❌ ပေးပို့မှု Error - {str(e)}")
 
-# --- ၇။ တစ်ခုချင်းပြင်ဆင်ခြင်း (မဖျက်ပါ) ---
+# --- ၇။ ပြင်ဆင်ခြင်း (တစ်ခုချင်းစီ ပြင်ဆင်ရန် - မှားသွားလျှင် ဤနေရာတွင်ပြင်ပါ) ---
 st.divider()
-st.subheader("⚙️ စာရင်းများ ပြင်ဆင်ရန်")
+st.subheader("⚙️ စာရင်းများ ပြန်ပြင်ရန်")
 
 if not df.empty:
     for i, row in df.iterrows():
-        # Syntax Fix: int(i) bracket ပိတ်ခြင်း
+        # Syntax Error fix: int(i) bracket ပိတ်ခြင်း
         actual_row = int(i) + 2
         with st.expander(f"👤 {row['Customer']} | 🔢 {row['Number']} | 💰 {row['Amount']} Ks"):
-            with st.form(f"edit_form_{i}"):
+            with st.form(f"edit_{i}"):
                 e_name = st.text_input("အမည်ပြင်ရန်", value=row['Customer'])
                 e_num = st.text_input("ဂဏန်းပြင်ရန်", value=row['Number'], max_chars=2)
                 e_amt = st.number_input("ပမာဏပြင်ရန်", value=int(row['Amount']))
-                
-                if st.form_submit_button("💾 ပြင်ဆင်မှုသိမ်းမည်"):
+                if st.form_submit_button("💾 ပြင်ဆင်မှု သိမ်းမည်"):
                     try:
-                        res = requests.post(script_url, json={
-                            "action": "update", "row_index": actual_row,
-                            "Customer": e_name, "Number": str(e_num).zfill(2), "Amount": int(e_amt)
-                        })
+                        res = requests.post(script_url, json={"action": "update", "row_index": actual_row, "Customer": e_name, "Number": str(e_num).zfill(2), "Amount": int(e_amt)})
                         if res.status_code == 200:
                             st.success("✅ ပြင်ဆင်ပြီးပါပြီ။")
                             time.sleep(2)
@@ -139,27 +136,33 @@ if not df.empty:
                     except:
                         st.error("❌ ပြင်မရပါ။")
 
-# --- ၈။ ဇယား နှင့် ရှာဖွေခြင်း ---
+# --- ၈။ ဇယား နှင့် ရှာဖွေခြင်း (နာမည်စစ်ခြင်း) ---
 st.divider()
 st.subheader("📊 အရောင်းဇယား")
-search_name = st.text_input("🔎 နာမည်စစ်ရန် (နာမည်ဖြင့်ရှာရန်)")
-filtered_df = df[df['Customer'].str.contains(search_name, case=False, na=False)] if search_name else df
+search_name = st.text_input("🔎 နာမည်စစ်ရန် (နာမည်ရိုက်ထည့်ပါ)")
 
-# ပေါက်ဂဏန်းစစ်ခြင်း
+filtered_df = df.copy()
+if search_name:
+    filtered_df = filtered_df[filtered_df['Customer'].str.contains(search_name, case=False, na=False)]
+
+# ပေါက်ဂဏန်းစစ်ဆေးခြင်း နှင့် ဇ တွက်ခြင်း
 if win_num:
     winners = filtered_df[filtered_df['Number'] == win_num].copy()
     if not winners.empty:
         st.success(f"🎊 ပေါက်ဂဏန်း {win_num} အတွက် ပေါက်သူများ")
         winners['လျော်ကြေး'] = winners['Amount'] * za_rate
-        st.dataframe(winners, use_container_width=True)
+        st.table(winners[['Customer', 'Number', 'Amount', 'လျော်ကြေး']])
+    else:
+        st.info("ပေါက်သူမရှိသေးပါ။")
 
 st.dataframe(filtered_df, use_container_width=True, hide_index=True)
 
-# အကုန်ဖျက်ရန်
-if st.button("🔥 စာရင်းအားလုံးကို အကုန်ဖျက်မည်"):
+# --- ၉။ စာရင်းအသစ်အတွက် အကုန်ဖျက်ခြင်း (နေ့စဉ် စာရင်းရှင်းရန်) ---
+st.divider()
+if st.button("🔥 စာရင်းအားလုံးကို အကုန်ဖျက်မည် (နောက်နေ့အတွက်)"):
     try:
         requests.post(script_url, json={"action": "clear_all"})
-        st.warning("အကုန်ဖျက်ပြီးပါပြီ။")
+        st.warning("အကုန်ဖျက်ပြီးပါပြီ။ စာရင်းအသစ် ပြန်စနိုင်ပါပြီ။")
         time.sleep(2)
         st.rerun()
     except:
