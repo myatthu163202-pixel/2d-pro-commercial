@@ -8,17 +8,13 @@ st.set_page_config("2D Agent Pro", "💰", layout="wide")
 
 MM_TZ = timezone(timedelta(hours=6, minutes=30))
 TODAY = datetime.now(MM_TZ).strftime("%Y-%m-%d")
-NUMBER_LIMIT = 50000   # ⭐ ဂဏန်းတစ်ခု အများဆုံး ၅သောင်း ⭐
+NUMBER_LIMIT = 50000   
 
 # ================= USER STORAGE =================
 @st.cache_resource
 def storage():
     return {
-        "admin": {
-            "sheet": "",
-            "script": "",
-            "show_links": False
-        }
+        "admin": {"sheet": "", "script": ""}
     }
 
 DB = storage()
@@ -39,41 +35,25 @@ if not st.session_state.login:
             st.session_state.user = u
             st.rerun()
         else:
-            st.error("❌ Login မအောင်မြင်ပါ")
+            st.error("Login မအောင်မြင်ပါ")
     st.stop()
 
 user = st.session_state.user
 
-# ================= SIDEBAR =================
+# ================= SIDEBAR (WITH HIDE/SHOW LINKS) =================
 st.sidebar.title(f"👤 {user}")
 
-toggle_label = "🔓 Link ပြရန်" if not DB[user]["show_links"] else "🔒 Link ဖွက်ရန်"
-if st.sidebar.button(toggle_label):
-    DB[user]["show_links"] = not DB[user]["show_links"]
-    st.rerun()
+# Link များကို ဖျောက်ထားရန်/ပြရန် expander သုံးထားသည်
+with st.sidebar.expander("⚙️ Settings (Links)"):
+    sheet = st.text_input("Google Sheet URL", DB[user]["sheet"])
+    script = st.text_input("Apps Script URL", DB[user]["script"])
 
-if DB[user]["show_links"]:
-    with st.sidebar.container(border=True):
-        st.markdown("### ⚙️ System Links")
-
-        sheet = st.text_input(
-            "Google Sheet URL",
-            value=DB[user]["sheet"]
-        )
-
-        script = st.text_input(
-            "Apps Script URL",
-            value=DB[user]["script"]
-        )
-
-        # 🔥 Auto Save
+    if st.button("💾 Save Links"):
         DB[user]["sheet"] = sheet
         DB[user]["script"] = script
-
-        st.caption("🔒 Link များကို အလိုအလျောက် သိမ်းထားပါသည်")
-
-sheet = DB[user]["sheet"]
-script = DB[user]["script"]
+        st.success("သိမ်းပြီး")
+        time.sleep(1)
+        st.rerun()
 
 st.sidebar.divider()
 win = st.sidebar.text_input("🎯 ပေါက်ဂဏန်း", max_chars=2)
@@ -84,25 +64,29 @@ if st.sidebar.button("Logout"):
     st.rerun()
 
 if not sheet or not script:
-    st.warning("⚠️ Link များကို အရင်ထည့်ပါ")
+    st.warning("Sidebar ရှိ Settings တွင် Sheet / Script Link ထည့်ပါ")
     st.stop()
 
 # ================= LOAD SHEET =================
 def csv_url(url):
-    m = re.search(r"/d/([^/]+)", url)
-    return f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=csv"
+    try:
+        m = re.search(r"/d/([^/]+)", url)
+        return f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=csv"
+    except:
+        return ""
 
-df = pd.read_csv(csv_url(sheet) + f"&t={int(time.time())}")
-df.columns = df.columns.str.strip()
-
-for c in ["Date","Time","Customer","Number","Amount","Receipt"]:
-    if c not in df.columns:
-        df[c] = ""
-
-df["Number"] = df["Number"].astype(str).str.zfill(2)
-df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
-
-today_df = df[df["Date"] == TODAY]
+try:
+    df = pd.read_csv(csv_url(sheet) + f"&t={int(time.time())}", header=0)
+    df.columns = df.columns.str.strip()
+    for c in ["Date","Time","Customer","Number","Amount","Receipt"]:
+        if c not in df.columns:
+            df[c] = ""
+    df["Number"] = df["Number"].astype(str).str.zfill(2)
+    df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
+    today_df = df[df["Date"] == TODAY]
+except:
+    st.error("Sheet URL မှားနေပါသည် သို့မဟုတ် Access မရှိပါ")
+    st.stop()
 
 # ================= DASHBOARD =================
 st.title("💰 2D Agent Dashboard")
@@ -117,75 +101,58 @@ with st.expander("📝 စာရင်းအသစ်ထည့်ရန်", exp
         amt = c3.number_input("ပိုက်ဆံပမာဏ", min_value=100, step=100)
 
         if st.form_submit_button("သိမ်းမည်"):
-            num = num.zfill(2)
-            used = today_df[today_df["Number"] == num]["Amount"].sum()
-
-            if used + amt > NUMBER_LIMIT:
-                st.error(
-                    f"❌ ဂဏန်း {num} သည် ဒီနေ့ {used:,.0f} ကျပ်ရှိပြီးသားပါ။\n"
-                    f"အများဆုံး {NUMBER_LIMIT:,.0f} ကျပ်သာ ခွင့်ပြုထားပါသည်။"
-                )
+            if num and name:
+                num = num.zfill(2)
+                used_amount = today_df[today_df["Number"] == num]["Amount"].sum()
+                if used_amount + amt > NUMBER_LIMIT:
+                    st.error(f"❌ {num} သည် Limit ပြည့်နေပြီ!")
+                else:
+                    receipt = f"R-{TODAY}-{len(today_df)+1:04d}"
+                    payload = {
+                        "action": "insert",
+                        "Date": TODAY,
+                        "Time": datetime.now(MM_TZ).strftime("%I:%M %p"),
+                        "Customer": name,
+                        "Number": num,
+                        "Amount": int(amt),
+                        "Receipt": receipt
+                    }
+                    requests.post(script, json=payload)
+                    st.success("✔️ သိမ်းပြီး")
+                    time.sleep(1)
+                    st.rerun()
             else:
-                receipt = f"R-{TODAY}-{len(today_df)+1:04d}"
-                payload = {
-                    "action": "insert",
-                    "Date": TODAY,
-                    "Time": datetime.now(MM_TZ).strftime("%I:%M %p"),
-                    "Customer": name,
-                    "Number": num,
-                    "Amount": int(amt),
-                    "Receipt": receipt
-                }
-                requests.post(script, json=payload)
-                st.success("✔️ စာရင်းသွင်းပြီးပါပြီ")
-                time.sleep(1)
-                st.rerun()
+                st.warning("အချက်အလက်အကုန်ဖြည့်ပါ")
 
 # ================= WIN CHECK =================
 if win:
-    winners = today_df[today_df["Number"] == win.zfill(2)]
-    if not winners.empty:
-        winners["လျော်ကြေး"] = winners["Amount"] * za
-        st.success("🎉 ပေါက်သူများ")
-        st.table(winners[["Customer","Number","Amount","လျော်ကြေး"]])
+    w = today_df[today_df["Number"] == win.zfill(2)]
+    if not w.empty:
+        w["လျော်ကြေး"] = w["Amount"] * za
+        st.success(f"🎉 ပေါက်ဂဏန်း {win} တွေ့ရှိမှု")
+        st.table(w[["Customer","Number","Amount","လျော်ကြေး"]])
 
-# ================= EDIT =================
-st.subheader("✏️ ဒီနေ့စာရင်း ပြန်ပြင်ရန်")
-for i, r in today_df.iterrows():
-    with st.expander(f"{r.Customer} | {r.Number} | {r.Amount:,.0f}"):
-        with st.form(f"edit_{i}"):
-            en = st.text_input("အမည်", r.Customer)
-            nu = st.text_input("ဂဏန်း", r.Number)
-            am = st.number_input("ပမာဏ", value=int(r.Amount))
-            if st.form_submit_button("Update"):
-                requests.post(script, json={
-                    "action": "update",
-                    "row": i + 2,
-                    "Customer": en,
-                    "Number": nu.zfill(2),
-                    "Amount": int(am)
-                })
-                st.success("ပြင်ပြီးပါပြီ")
-                time.sleep(1)
-                st.rerun()
-
-# ================= TABLE =================
+# ================= TABLE & SEARCH =================
 st.subheader("📋 ဒီနေ့စာရင်းဇယား")
-search = st.text_input("🔍 နာမည်စစ်ရန်")
+search = st.text_input("🔍 နာမည်ဖြင့်ရှာရန်")
 view = today_df
 if search:
     view = view[view["Customer"].str.contains(search, case=False, na=False)]
 
 st.dataframe(view, use_container_width=True, hide_index=True)
 
-# ================= EXPORT =================
-csv_data = view.to_csv(index=False).encode("utf-8")
-st.download_button("⬇️ ဒီနေ့စာရင်း CSV ဒေါင်း", csv_data, "today_2d.csv", "text/csv")
+# ================= EXPORT & CLEAR =================
+col_dl, col_clr = st.columns([1, 1])
 
-# ================= CLEAR TODAY =================
-st.divider()
-if st.button("🔥 ဒီနေ့စာရင်း အကုန်ဖျက်"):
-    requests.post(script, json={"action": "clear_today", "date": TODAY})
-    st.warning("ဒီနေ့စာရင်းအားလုံး ဖျက်ပြီးပါပြီ")
-    time.sleep(1)
-    st.rerun()
+with col_dl:
+    csv_data = view.to_csv(index=False).encode("utf-8")
+    st.download_button("⬇️ CSV ဒေါင်းလုဒ်ဆွဲရန်", csv_data, "today_2d.csv", "text/csv")
+
+with col_clr:
+    # အကုန်ဖျက်ရန် Double Check လုပ်ခြင်း
+    confirm = st.checkbox("⚠️ စာရင်းအားလုံးဖျက်ရန် သေချာပါသည်")
+    if st.button("🔥 ဒီနေ့စာရင်း အကုန်ဖျက်မည်", disabled=not confirm):
+        requests.post(script, json={"action":"clear_today","date":TODAY})
+        st.warning("ဖျက်ပြီးပါပြီ")
+        time.sleep(1)
+        st.rerun()
