@@ -73,4 +73,109 @@ if not sheet_url or not script_url:
 # --- ၅။ Data Loading (Cache Buster သုံးထားသည်) ---
 def get_csv_url(url):
     m = re.search(r"/d/([^/]*)", url)
-    return f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=csv" if m else
+    return f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=csv" if m else None
+
+try:
+    csv_url = get_csv_url(sheet_url)
+    # cachebuster ဖြင့် ဒေတာအသစ်ကို အမြဲဆွဲယူသည်
+    df = pd.read_csv(f"{csv_url}&cachebuster={int(time.time())}")
+    df.columns = df.columns.str.strip()
+    df['Number'] = df['Number'].astype(str).str.zfill(2)
+    df['Amount'] = pd.to_numeric(df['Amount'], errors='coerce').fillna(0)
+except Exception:
+    st.error("❌ ဒေတာဆွဲမရပါ။ လင့်ခ်များ မှန်မမှန် ပြန်စစ်ပါ။")
+    st.stop()
+
+# --- ၆။ Main Dashboard ---
+st.title(f"💰 {curr_user}'s 2D Pro Dashboard")
+total_in = df['Amount'].sum() if not df.empty else 0
+st.metric("စုစုပေါင်းရောင်းရငွေ", f"{total_in:,.0f} Ks")
+
+# စာရင်းအသစ်သွင်းခြင်း (မြန်မာစံတော်ချိန်ဖြင့်)
+with st.expander("📝 စာရင်းအသစ်သွင်းရန်", expanded=True):
+    with st.form("entry_form", clear_on_submit=True):
+        col1, col2, col3 = st.columns(3)
+        with col1: f_name = st.text_input("ထိုးသူအမည်")
+        with col2: f_num = st.text_input("ထိုးမည်ဂဏန်း", max_chars=2)
+        with col3: f_amt = st.number_input("ပိုက်ဆံပမာဏ", min_value=100, step=100)
+        if st.form_submit_button("✅ သိမ်းဆည်းမည်"):
+            if f_name and f_num:
+                # မြန်မာစံတော်ချိန် ယူခြင်း
+                mm_tz = timezone(timedelta(hours=6, minutes=30))
+                mm_time = datetime.now(mm_tz).strftime("%I:%M %p")
+                try:
+                    requests.post(script_url, json={
+                        "action": "insert", 
+                        "Customer": f_name, 
+                        "Number": str(f_num).zfill(2), 
+                        "Amount": int(f_amt), 
+                        "Time": mm_time
+                    })
+                    st.success("သွင်းပြီးပါပြီ။")
+                    time.sleep(1.5)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ ပေးပို့မှု Error - {str(e)}")
+
+# --- ၇။ ပြင်ဆင်ခြင်း (တစ်ခုချင်းစီ ပြန်ပြင်ရန်) ---
+st.divider()
+st.subheader("⚙️ စာရင်းများ ပြန်ပြင်ရန်")
+
+if not df.empty:
+    for i, row in df.iterrows():
+        # Sheet ထဲက Row နံပါတ်ကို တွက်ခြင်း (Syntax မှန်အောင် ပြင်ထားသည်)
+        actual_row_idx = int(i) + 2
+        with st.expander(f"👤 {row['Customer']} | 🔢 {row['Number']} | 💰 {row['Amount']} Ks"):
+            with st.form(f"edit_{i}"):
+                e_name = st.text_input("အမည်ပြင်ရန်", value=row['Customer'])
+                e_num = st.text_input("ဂဏန်းပြင်ရန်", value=row['Number'], max_chars=2)
+                e_amt = st.number_input("ပမာဏပြင်ရန်", value=int(row['Amount']))
+                if st.form_submit_button("💾 သိမ်းဆည်းမည်"):
+                    try:
+                        res = requests.post(script_url, json={
+                            "action": "update", 
+                            "row_index": actual_row_idx, 
+                            "Customer": e_name, 
+                            "Number": str(e_num).zfill(2), 
+                            "Amount": int(e_amt)
+                        })
+                        if res.status_code == 200:
+                            st.success("✅ ပြင်ဆင်ပြီးပါပြီ။")
+                            time.sleep(2)
+                            st.rerun()
+                        else:
+                            st.error("❌ ပြင်မရပါ။ Apps Script URL ကို စစ်ဆေးပါ။")
+                    except:
+                        st.error("❌ ပြင်မရပါ။")
+
+# --- ၈။ ဇယား နှင့် နာမည်စစ်ခြင်း ---
+st.divider()
+st.subheader("📊 အရောင်းဇယား")
+search_name = st.text_input("🔎 နာမည်စစ်ရန် (နာမည်ရိုက်ထည့်ပါ)")
+
+filtered_df = df.copy()
+if search_name:
+    filtered_df = filtered_df[filtered_df['Customer'].str.contains(search_name, case=False, na=False)]
+
+# ပေါက်ဂဏန်းစစ်ဆေးခြင်း
+if win_num:
+    winners = filtered_df[filtered_df['Number'] == win_num].copy()
+    if not winners.empty:
+        st.success(f"🎊 ပေါက်ဂဏန်း {win_num} အတွက် ပေါက်သူများ")
+        winners['လျော်ကြေး'] = winners['Amount'] * za_rate
+        st.table(winners[['Customer', 'Number', 'Amount', 'လျော်ကြေး']])
+    else:
+        st.info("ပေါက်သူမရှိသေးပါ။")
+
+st.dataframe(filtered_df, use_container_width=True, hide_index=True)
+
+# --- ၉။ နေ့စဉ်စာရင်းရှင်းရန် (အကုန်ဖျက်ခြင်း) ---
+st.divider()
+if st.button("🔥 စာရင်းအားလုံးကို အကုန်ဖျက်မည် (နေ့စဉ်စာရင်းရှင်းရန်)"):
+    try:
+        requests.post(script_url, json={"action": "clear_all"})
+        st.warning("အကုန်ဖျက်ပြီးပါပြီ။ စာရင်းအသစ် ပြန်စနိုင်ပါပြီ။")
+        time.sleep(2)
+        st.rerun()
+    except:
+        st.error("❌ Error တက်သွားပါသည်။")
