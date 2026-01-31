@@ -8,7 +8,7 @@ import re
 # --- ၁။ Page Setup ---
 st.set_page_config(page_title="2D Agent Pro", layout="wide", page_icon="💰")
 
-# --- ၂။ Link Persistence ---
+# --- ၂။ Link Persistence (Links များ သိမ်းဆည်းရန်) ---
 if "links" not in st.session_state:
     st.session_state["links"] = {"sheet": "", "script": ""}
 
@@ -23,8 +23,8 @@ if not st.session_state["logged_in"]:
     st.markdown("<h2 style='text-align: center;'>🔐 Member Login</h2>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        u = st.text_input("Username")
-        p = st.text_input("Password", type="password")
+        u = st.text_input("Username", key="u_name")
+        p = st.text_input("Password", type="password", key="p_word")
         if st.button("Login", use_container_width=True):
             if u in USERS and USERS[u] == p:
                 st.session_state["logged_in"] = True
@@ -34,7 +34,7 @@ if not st.session_state["logged_in"]:
                 st.error("❌ Username သို့မဟုတ် Password မှားယွင်းနေပါသည်။")
     st.stop()
 
-# --- ၅။ Sidebar ---
+# --- ၅။ Sidebar (Link များ သတ်မှတ်ခြင်း) ---
 st.sidebar.title(f"👋 {st.session_state['username']}")
 with st.sidebar.expander("🛠 Software Setup"):
     in_sheet = st.text_input("Google Sheet URL", value=st.session_state["links"]["sheet"])
@@ -42,7 +42,8 @@ with st.sidebar.expander("🛠 Software Setup"):
     if st.button("✅ Save Links"):
         st.session_state["links"]["sheet"] = in_sheet
         st.session_state["links"]["script"] = in_script
-        st.success("သိမ်းဆည်းပြီးပါပြီ။")
+        st.success("လင့်ခ်များကို သိမ်းဆည်းပြီးပါပြီ။")
+        time.sleep(1)
         st.rerun()
 
 sheet_url = st.session_state["links"]["sheet"]
@@ -56,13 +57,14 @@ if not sheet_url or not script_url:
     st.warning("💡 Sidebar ရှိ Setup တွင် Link များကို အရင်ထည့်ပေးပါ။")
     st.stop()
 
-# --- ၆။ Data Loading ---
+# --- ၆။ Data Loading (Cache အမှားရှင်းရန် Cachebuster သုံးခြင်း) ---
 def get_csv_url(url):
     m = re.search(r"/d/([^/]*)", url)
     return f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=csv" if m else None
 
 try:
     csv_url = get_csv_url(sheet_url)
+    # cachebuster ဖြင့် ဒေတာအသစ်ကို အမြဲဆွဲယူခြင်း
     df = pd.read_csv(f"{csv_url}&cachebuster={int(time.time())}")
     df.columns = df.columns.str.strip()
     df['Number'] = df['Number'].astype(str).str.zfill(2)
@@ -72,7 +74,7 @@ except Exception:
     st.stop()
 
 # --- ၇။ Main Dashboard ---
-st.title("📊 2D Agent Pro")
+st.title("📊 2D အရောင်းစာရင်း")
 total_in = df['Amount'].sum() if not df.empty else 0
 st.metric("စုစုပေါင်းရောင်းရငွေ", f"{total_in:,.0f} Ks")
 
@@ -84,6 +86,7 @@ with st.expander("📝 စာရင်းအသစ်သွင်းရန်"):
         f_amt = st.number_input("ပိုက်ဆံပမာဏ", min_value=100, step=100)
         if st.form_submit_button("✅ သိမ်းဆည်းမည်"):
             if f_name and f_num:
+                # Syntax fix: datetime code ကို သေချာပြန်ပိတ်ထားသည်
                 now = datetime.now(timezone(timedelta(hours=6, minutes=30)))
                 mm_time = now.strftime("%I:%M %p")
                 try:
@@ -92,4 +95,61 @@ with st.expander("📝 စာရင်းအသစ်သွင်းရန်"):
                     time.sleep(1.5)
                     st.rerun()
                 except Exception as e:
-                    st.error(f"❌ ချိတ်ဆက်မှု Error! - {str(e)}") [cite: image_
+                    # Syntax fix: brackets နှင့် quotes များကို သေချာပြန်ပိတ်ထားသည်
+                    st.error(f"❌ ချိတ်ဆက်မှု Error! - {str(e)}")
+
+# --- ၈။ ပြင်ဆင်ခြင်းနှင့် တစ်ခုချင်းဖျက်ခြင်း (သေချာပေါက် အလုပ်လုပ်စေရန်) ---
+st.divider()
+st.subheader("⚙️ စာရင်းများ စီမံရန်")
+
+if not df.empty:
+    for i, row in df.iterrows():
+        # Syntax Error fix: int(i) ကို သေချာပိတ်သည်
+        actual_row = int(i) + 2
+        
+        with st.expander(f"👤 {row['Customer']} | 🔢 {row['Number']} | 💰 {row['Amount']} Ks"):
+            # (က) ပြင်ဆင်ရန် Form
+            with st.form(f"edit_{i}"):
+                e_name = st.text_input("အမည်ပြင်ရန်", value=row['Customer'])
+                e_num = st.text_input("ဂဏန်းပြင်ရန်", value=row['Number'], max_chars=2)
+                e_amt = st.number_input("ပမာဏပြင်ရန်", value=int(row['Amount']))
+                
+                if st.form_submit_button("💾 ပြင်ဆင်မှုသိမ်းမည်"):
+                    try:
+                        res = requests.post(script_url, json={
+                            "action": "update", "row_index": actual_row,
+                            "Customer": e_name, "Number": str(e_num).zfill(2), "Amount": int(e_amt)
+                        })
+                        if res.status_code == 200:
+                            st.success("✅ ပြင်ဆင်ပြီးပါပြီ။")
+                            time.sleep(2)
+                            st.rerun()
+                        else:
+                            st.error("❌ Apps Script URL ကို စစ်ဆေးပါ။")
+                    except:
+                        st.error("❌ ပြင်မရပါ။")
+            
+            # (ခ) တစ်ခုချင်းဖျက်ရန် Button
+            if st.button(f"🗑 {row['Customer']} ၏ စာရင်းကိုဖျက်မည်", key=f"del_{i}"):
+                try:
+                    res = requests.post(script_url, json={"action": "delete", "row_index": actual_row})
+                    if res.status_code == 200:
+                        st.warning("🗑 ဖျက်ပြီးပါပြီ။")
+                        time.sleep(2)
+                        st.rerun()
+                except:
+                    st.error("❌ ဖျက်မရပါ။")
+
+# --- ၉။ အရောင်းဇယား ---
+st.divider()
+st.subheader("📊 အရောင်းဇယား")
+st.dataframe(df, use_container_width=True, hide_index=True)
+
+if st.button("🔥 စားရင်းအားလုံး အကုန်ဖျက်မည်"):
+    try:
+        requests.post(script_url, json={"action": "clear_all"})
+        st.warning("အကုန်ဖျက်ပြီးပါပြီ။")
+        time.sleep(2)
+        st.rerun()
+    except:
+        st.error("❌ အမှားရှိနေပါသည်။")
