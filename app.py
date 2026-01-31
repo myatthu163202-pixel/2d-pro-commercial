@@ -3,23 +3,40 @@ import pandas as pd
 from datetime import datetime, timedelta, timezone
 import requests, time, re
 
-# ================= PAGE SETUP =================
-st.set_page_config("2D Agent Pro", "💰", layout="wide")
+# =========================
+# Page Setup
+# =========================
+st.set_page_config(
+    page_title="2D Agent Pro",
+    page_icon="💰",
+    layout="wide"
+)
 
-MM_TZ = timezone(timedelta(hours=6, minutes=30))
+# =========================
+# Time & Limit Setup
+# =========================
+MM_TZ = timezone(timedelta(hours=6, minutes=30))   # မြန်မာစံတော်ချိန်
 TODAY = datetime.now(MM_TZ).strftime("%Y-%m-%d")
-NUMBER_LIMIT = 50000   
+NUMBER_LIMIT = 50000   # ဂဏန်းတစ်ခု အများဆုံး ၅သောင်း
 
-# ================= USER STORAGE =================
+# =========================
+# User Storage (Refresh မပျောက်)
+# =========================
 @st.cache_resource
 def storage():
     return {
-        "admin": {"sheet": "", "script": ""}
+        "admin": {
+            "sheet": "",
+            "script": "",
+            "show_links": False
+        }
     }
 
 DB = storage()
 
-# ================= LOGIN =================
+# =========================
+# Login System
+# =========================
 USERS = {"admin": "123456"}
 
 if "login" not in st.session_state:
@@ -35,124 +52,183 @@ if not st.session_state.login:
             st.session_state.user = u
             st.rerun()
         else:
-            st.error("Login မအောင်မြင်ပါ")
+            st.error("❌ Username သို့မဟုတ် Password မှားနေပါသည်")
     st.stop()
 
 user = st.session_state.user
 
-# ================= SIDEBAR (WITH HIDE/SHOW LINKS) =================
+# =========================
+# Sidebar (Link Hide / Show)
+# =========================
 st.sidebar.title(f"👤 {user}")
 
-# Link များကို ဖျောက်ထားရန်/ပြရန် expander သုံးထားသည်
-with st.sidebar.expander("⚙️ Settings (Links)"):
-    sheet = st.text_input("Google Sheet URL", DB[user]["sheet"])
-    script = st.text_input("Apps Script URL", DB[user]["script"])
+toggle_text = "🔓 Link ပြရန်" if not DB[user]["show_links"] else "🔒 Link ဖွက်ရန်"
+if st.sidebar.button(toggle_text):
+    DB[user]["show_links"] = not DB[user]["show_links"]
+    st.rerun()
 
-    if st.button("💾 Save Links"):
+# ---- Hidden Link Area ----
+if DB[user]["show_links"]:
+    with st.sidebar.container(border=True):
+        st.markdown("### ⚙️ System Links")
+
+        sheet = st.text_input(
+            "Google Sheet URL",
+            value=DB[user]["sheet"]
+        )
+
+        script = st.text_input(
+            "Apps Script URL",
+            value=DB[user]["script"]
+        )
+
+        # Auto Save (Button မလို)
         DB[user]["sheet"] = sheet
         DB[user]["script"] = script
-        st.success("သိမ်းပြီး")
-        time.sleep(1)
-        st.rerun()
+
+        st.caption("🔒 Link များကို အလိုအလျောက် သိမ်းထားပါသည်")
+
+sheet = DB[user]["sheet"]
+script = DB[user]["script"]
 
 st.sidebar.divider()
-win = st.sidebar.text_input("🎯 ပေါက်ဂဏန်း", max_chars=2)
-za = st.sidebar.number_input("💰 ဇ (အဆ)", value=80)
+win_number = st.sidebar.text_input("🎯 ပေါက်ဂဏန်းစစ်", max_chars=2)
+za_rate = st.sidebar.number_input("💰 ဇ (အဆ)", value=80)
 
 if st.sidebar.button("Logout"):
     st.session_state.login = False
     st.rerun()
 
 if not sheet or not script:
-    st.warning("Sidebar ရှိ Settings တွင် Sheet / Script Link ထည့်ပါ")
+    st.warning("⚠️ Link များကို အရင်ထည့်ပါ")
     st.stop()
 
-# ================= LOAD SHEET =================
+# =========================
+# Load Google Sheet
+# =========================
 def csv_url(url):
-    try:
-        m = re.search(r"/d/([^/]+)", url)
-        return f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=csv"
-    except:
-        return ""
+    m = re.search(r"/d/([^/]+)", url)
+    return f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=csv"
 
 try:
-    df = pd.read_csv(csv_url(sheet) + f"&t={int(time.time())}", header=0)
+    df = pd.read_csv(csv_url(sheet) + f"&t={int(time.time())}")
     df.columns = df.columns.str.strip()
+
     for c in ["Date","Time","Customer","Number","Amount","Receipt"]:
         if c not in df.columns:
             df[c] = ""
+
     df["Number"] = df["Number"].astype(str).str.zfill(2)
     df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
+
     today_df = df[df["Date"] == TODAY]
+
 except:
-    st.error("Sheet URL မှားနေပါသည် သို့မဟုတ် Access မရှိပါ")
+    st.error("❌ Sheet URL မှားနေပါသည် သို့မဟုတ် Access မရှိပါ")
     st.stop()
 
-# ================= DASHBOARD =================
+# =========================
+# Dashboard
+# =========================
 st.title("💰 2D Agent Dashboard")
-st.metric("📊 ဒီနေ့စုစုပေါင်း", f"{today_df['Amount'].sum():,.0f} Ks")
+st.metric("📊 ဒီနေ့စုစုပေါင်းရောင်းငွေ", f"{today_df['Amount'].sum():,.0f} ကျပ်")
 
-# ================= NEW ENTRY =================
+# =========================
+# New Entry (စာရင်းသွင်း)
+# =========================
 with st.expander("📝 စာရင်းအသစ်ထည့်ရန်", expanded=True):
     with st.form("new_entry", clear_on_submit=True):
         c1, c2, c3 = st.columns(3)
         name = c1.text_input("ထိုးသူအမည်")
-        num = c2.text_input("ထိုးမည်ဂဏန်း", max_chars=2)
-        amt = c3.number_input("ပိုက်ဆံပမာဏ", min_value=100, step=100)
+        number = c2.text_input("ထိုးမည်ဂဏန်း", max_chars=2)
+        amount = c3.number_input("ပိုက်ဆံပမာဏ", min_value=100, step=100)
 
         if st.form_submit_button("သိမ်းမည်"):
-            if num and name:
-                num = num.zfill(2)
-                used_amount = today_df[today_df["Number"] == num]["Amount"].sum()
-                if used_amount + amt > NUMBER_LIMIT:
-                    st.error(f"❌ {num} သည် Limit ပြည့်နေပြီ!")
+            if not name or not number:
+                st.warning("အချက်အလက်အပြည့်အစုံ ဖြည့်ပါ")
+            else:
+                number = number.zfill(2)
+                used_amount = today_df[today_df["Number"] == number]["Amount"].sum()
+
+                # Limit Check
+                if used_amount + amount > NUMBER_LIMIT:
+                    st.error(
+                        f"❌ ဂဏန်း {number} သည် ဒီနေ့ "
+                        f"{used_amount:,.0f} ကျပ် ရှိပြီးသားဖြစ်ပါသည်။\n"
+                        f"အများဆုံး {NUMBER_LIMIT:,.0f} ကျပ်သာ ခွင့်ပြုထားပါသည်။"
+                    )
                 else:
-                    receipt = f"R-{TODAY}-{len(today_df)+1:04d}"
                     payload = {
                         "action": "insert",
                         "Date": TODAY,
                         "Time": datetime.now(MM_TZ).strftime("%I:%M %p"),
                         "Customer": name,
-                        "Number": num,
-                        "Amount": int(amt),
-                        "Receipt": receipt
+                        "Number": number,
+                        "Amount": int(amount),
+                        "Receipt": f"R-{TODAY}-{len(today_df)+1:04d}"
                     }
                     requests.post(script, json=payload)
-                    st.success("✔️ သိမ်းပြီး")
+                    st.success("✔️ စာရင်းသွင်းပြီးပါပြီ")
                     time.sleep(1)
                     st.rerun()
-            else:
-                st.warning("အချက်အလက်အကုန်ဖြည့်ပါ")
 
-# ================= WIN CHECK =================
-if win:
-    w = today_df[today_df["Number"] == win.zfill(2)]
-    if not w.empty:
-        w["လျော်ကြေး"] = w["Amount"] * za
-        st.success(f"🎉 ပေါက်ဂဏန်း {win} တွေ့ရှိမှု")
-        st.table(w[["Customer","Number","Amount","လျော်ကြေး"]])
+# =========================
+# Win Number Check
+# =========================
+if win_number:
+    winners = today_df[today_df["Number"] == win_number.zfill(2)]
+    if not winners.empty:
+        winners["လျော်ကြေး"] = winners["Amount"] * za_rate
+        st.success("🎉 ပေါက်သူများ")
+        st.table(winners[["Customer","Number","Amount","လျော်ကြေး"]])
 
-# ================= TABLE & SEARCH =================
+# =========================
+# Edit Today Records
+# =========================
+st.subheader("✏️ ဒီနေ့စာရင်း ပြန်ပြင်ရန်")
+for i, r in today_df.iterrows():
+    with st.expander(f"{r.Customer} | {r.Number} | {r.Amount:,.0f} ကျပ်"):
+        with st.form(f"edit_{i}"):
+            en = st.text_input("အမည်", r.Customer)
+            nu = st.text_input("ဂဏန်း", r.Number)
+            am = st.number_input("ပမာဏ", value=int(r.Amount))
+            if st.form_submit_button("ပြင်မည်"):
+                requests.post(script, json={
+                    "action": "update",
+                    "row": i + 2,
+                    "Customer": en,
+                    "Number": nu.zfill(2),
+                    "Amount": int(am)
+                })
+                st.success("✔️ ပြင်ပြီးပါပြီ")
+                time.sleep(1)
+                st.rerun()
+
+# =========================
+# Table & Search
+# =========================
 st.subheader("📋 ဒီနေ့စာရင်းဇယား")
 search = st.text_input("🔍 နာမည်ဖြင့်ရှာရန်")
-view = today_df
+
+view_df = today_df
 if search:
-    view = view[view["Customer"].str.contains(search, case=False, na=False)]
+    view_df = view_df[view_df["Customer"].str.contains(search, case=False, na=False)]
 
-st.dataframe(view, use_container_width=True, hide_index=True)
+st.dataframe(view_df, use_container_width=True, hide_index=True)
 
-# ================= EXPORT & CLEAR =================
-col_dl, col_clr = st.columns([1, 1])
+# =========================
+# Export & Clear Today
+# =========================
+col1, col2 = st.columns(2)
 
-with col_dl:
-    csv_data = view.to_csv(index=False).encode("utf-8")
-    st.download_button("⬇️ CSV ဒေါင်းလုဒ်ဆွဲရန်", csv_data, "today_2d.csv", "text/csv")
+with col1:
+    csv_data = view_df.to_csv(index=False).encode("utf-8")
+    st.download_button("⬇️ CSV ဒေါင်းလုဒ်", csv_data, "today_2d.csv", "text/csv")
 
-with col_clr:
-    # အကုန်ဖျက်ရန် Double Check လုပ်ခြင်း
-    confirm = st.checkbox("⚠️ စာရင်းအားလုံးဖျက်ရန် သေချာပါသည်")
-    if st.button("🔥 ဒီနေ့စာရင်း အကုန်ဖျက်မည်", disabled=not confirm):
-        requests.post(script, json={"action":"clear_today","date":TODAY})
-        st.warning("ဖျက်ပြီးပါပြီ")
+with col2:
+    confirm = st.checkbox("⚠️ ဒီနေ့စာရင်းကို ဖျက်မည်ဟု သေချာပါသည်")
+    if st.button("🔥 ဒီနေ့စာရင်း အကုန်ဖျက်", disabled=not confirm):
+        requests.post(script, json={"action": "clear_today", "date": TODAY})
+        st.warning("ဒီနေ့စာရင်းအားလုံး ဖျက်ပြီးပါပြီ")
         time.sleep(1)
         st.rerun()
