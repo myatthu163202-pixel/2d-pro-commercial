@@ -11,7 +11,6 @@ st.set_page_config(page_title="2D Agent Pro", layout="wide", page_icon="💰")
 # --- ၂။ Link Persistence (Refresh လုပ်လည်း မပျောက်စေရန်) ---
 @st.cache_resource
 def get_user_storage():
-    # admin နှင့် thiri အတွက် သီးခြား sheet သိမ်းရန် နေရာ
     return {
         "admin": {"sheet": "", "script": ""},
         "thiri": {"sheet": "", "script": ""}
@@ -51,7 +50,7 @@ with st.sidebar.expander("🛠 Software Setup", expanded=(not user_db[curr_user]
     if st.button("✅ Save Links Permanently"):
         user_db[curr_user]["sheet"] = in_sheet
         user_db[curr_user]["script"] = in_script
-        st.success("လင့်ခ်များကို မှတ်သားပြီးပါပြီ။")
+        st.success("သိမ်းဆည်းပြီးပါပြီ။")
         time.sleep(1)
         st.rerun()
 
@@ -77,7 +76,6 @@ def get_csv_url(url):
 
 try:
     csv_url = get_csv_url(sheet_url)
-    # cachebuster ဖြင့် ဒေတာအသစ်ကို အမြဲဆွဲယူသည်
     df = pd.read_csv(f"{csv_url}&cachebuster={int(time.time())}")
     df.columns = df.columns.str.strip()
     df['Number'] = df['Number'].astype(str).str.zfill(2)
@@ -87,4 +85,27 @@ except Exception:
     st.stop()
 
 # --- ၆။ Main Dashboard ---
-st.title(f"💰 {curr
+st.title(f"💰 {curr_user}'s 2D Pro Dashboard")
+total_in = df['Amount'].sum() if not df.empty else 0
+st.metric("စုစုပေါင်းရောင်းရငွေ", f"{total_in:,.0f} Ks")
+
+# စာရင်းအသစ်သွင်းခြင်း (မြန်မာစံတော်ချိန်ဖြင့်)
+with st.expander("📝 စာရင်းအသစ်သွင်းရန်", expanded=True):
+    with st.form("entry_form", clear_on_submit=True):
+        col1, col2, col3 = st.columns(3)
+        with col1: f_name = st.text_input("ထိုးသူအမည်")
+        with col2: f_num = st.text_input("ထိုးမည်ဂဏန်း", max_chars=2)
+        with col3: f_amt = st.number_input("ပိုက်ဆံပမာဏ", min_value=100, step=100)
+        if st.form_submit_button("✅ သိမ်းဆည်းမည်"):
+            if f_name and f_num:
+                mm_tz = timezone(timedelta(hours=6, minutes=30))
+                mm_time = datetime.now(mm_tz).strftime("%I:%M %p")
+                try:
+                    requests.post(script_url, json={
+                        "action": "insert", 
+                        "Customer": f_name, 
+                        "Number": str(f_num).zfill(2), 
+                        "Amount": int(f_amt), 
+                        "Time": mm_time
+                    })
+                    st.success
