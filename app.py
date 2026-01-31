@@ -18,66 +18,43 @@ st.set_page_config(
 # =========================
 MM_TZ = timezone(timedelta(hours=6, minutes=30))  
 TODAY = datetime.now(MM_TZ).strftime("%Y-%m-%d")
-NUMBER_LIMIT = 50000
 
 # =========================
-# User Management Functions
+# User Database (Hardcoded)
 # =========================
-def hash_password(password):
-    """Hash password for security"""
-    return hashlib.sha256(password.encode()).hexdigest()
-
-def load_users():
-    """Load users from session state or initialize"""
-    if "users" not in st.session_state:
-        # Default admin user (can be changed)
-        st.session_state.users = {
-            "admin": {
-                "password_hash": hash_password("admin123"),  # Change this!
-                "sheet": "",
-                "script": "",
-                "show_links": False,
-                "za_rate": 80,
-                "number_limit": 50000
-            }
-        }
-    return st.session_state.users
-
-def save_user(username, password, sheet="", script=""):
-    """Save new user or update existing user"""
-    users = load_users()
-    users[username] = {
-        "password_hash": hash_password(password),
-        "sheet": sheet,
-        "script": script,
-        "show_links": False,
-        "za_rate": 80,
-        "number_limit": 50000
+USERS_DATABASE = {
+    "admin": {
+        "password": "1632022",  # Admin password
+        "sheet_url": "",
+        "script_url": "",
+        "number_limit": 50000,
+        "za_rate": 80
     }
-    st.session_state.users = users
-    return True
-
-def delete_user(username):
-    """Delete a user"""
-    if username in st.session_state.users:
-        del st.session_state.users[username]
-        return True
-    return False
-
-# Initialize users
-users_db = load_users()
+    # Add more users here in format:
+    # "username": {
+    #     "password": "password123",
+    #     "sheet_url": "",
+    #     "script_url": "",
+    #     "number_limit": 50000,
+    #     "za_rate": 80
+    # }
+}
 
 # =========================
-# Login System
+# Session State Setup
 # =========================
-if "login" not in st.session_state:
-    st.session_state.login = False
-    st.session_state.user = None
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+    st.session_state.current_user = None
+    st.session_state.user_data = None
+    st.session_state.debug_mode = False
     st.session_state.last_refresh = None
-    st.session_state.script_debug = False
+    st.session_state.show_links = True
 
-if not st.session_state.login:
-    # Login Page
+# =========================
+# Login Page
+# =========================
+if not st.session_state.authenticated:
     st.title("🔐 2D Agent Pro - Login")
     
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -85,18 +62,17 @@ if not st.session_state.login:
         with st.container(border=True):
             st.markdown("### အကောင့်ဝင်ရန်")
             
-            tab_login, tab_register = st.tabs(["🔐 အကောင့်ဝင်", "📝 အကောင့်အသစ်"])
+            username = st.text_input("👤 Username", key="login_username")
+            password = st.text_input("🔒 Password", type="password", key="login_password")
             
-            with tab_login:
-                username = st.text_input("👤 Username", key="login_username")
-                password = st.text_input("🔒 Password", type="password", key="login_password")
-                
+            col_btn1, col_btn2 = st.columns(2)
+            with col_btn1:
                 if st.button("🚀 Login", type="primary", use_container_width=True):
-                    if username in users_db:
-                        stored_hash = users_db[username]["password_hash"]
-                        if hash_password(password) == stored_hash:
-                            st.session_state.login = True
-                            st.session_state.user = username
+                    if username in USERS_DATABASE:
+                        if USERS_DATABASE[username]["password"] == password:
+                            st.session_state.authenticated = True
+                            st.session_state.current_user = username
+                            st.session_state.user_data = USERS_DATABASE[username].copy()
                             st.session_state.last_refresh = datetime.now()
                             st.rerun()
                         else:
@@ -104,151 +80,142 @@ if not st.session_state.login:
                     else:
                         st.error("❌ Username မရှိပါ")
             
-            with tab_register:
-                st.info("👑 Admin မှသာ အကောင့်အသစ်ဖန်တီးနိုင်ပါသည်")
-                
-                # Only allow admin to create new accounts
-                admin_username = st.text_input("Admin Username", key="admin_user")
-                admin_password = st.text_input("Admin Password", type="password", key="admin_pass")
-                
-                new_username = st.text_input("အကောင့်အသစ် Username", key="new_user")
-                new_password = st.text_input("အကောင့်အသစ် Password", type="password", key="new_pass")
-                
-                if st.button("➕ အကောင့်အသစ်ဖန်တီးမည်", use_container_width=True):
-                    # Verify admin credentials
-                    if admin_username in users_db and admin_password:
-                        stored_admin_hash = users_db[admin_username]["password_hash"]
-                        if hash_password(admin_password) == stored_admin_hash:
-                            if new_username and new_password:
-                                if new_username not in users_db:
-                                    save_user(new_username, new_password)
-                                    st.success(f"✅ {new_username} အကောင့်ဖန်တီးပြီးပါပြီ")
-                                    time.sleep(1)
-                                    st.rerun()
-                                else:
-                                    st.error("❌ Username ရှိပြီးသားဖြစ်နေပါသည်")
-                            else:
-                                st.error("❌ Username နှင့် Password ထည့်ပါ")
-                        else:
-                            st.error("❌ Admin Password မှားနေပါသည်")
-                    else:
-                        st.error("❌ Admin credentials မှားနေပါသည်")
+            with col_btn2:
+                if st.button("➕ Add User", use_container_width=True):
+                    st.switch_page("?add_user=true") if "add_user" not in st.query_params else None
     
-    st.divider()
-    
-    # User list (admin only view)
-    with st.expander("👥 ရှိပြီးသားအကောင့်များ"):
-        if users_db:
-            user_list = list(users_db.keys())
-            cols = 3
-            rows = (len(user_list) + cols - 1) // cols
+    # User Management Section (Visible to all)
+    with st.container(border=True):
+        st.markdown("### 👥 အကောင့်များ")
+        
+        # Add new user form
+        if st.query_params.get("add_user") == "true":
+            st.markdown("#### အကောင့်အသစ်ထည့်ရန်")
             
-            for i in range(rows):
-                col_list = st.columns(cols)
-                for j in range(cols):
-                    idx = i * cols + j
-                    if idx < len(user_list):
-                        with col_list[j]:
-                            st.text(f"👤 {user_list[idx]}")
+            admin_user = st.text_input("Admin Username", key="admin_user_add")
+            admin_pass = st.text_input("Admin Password", type="password", key="admin_pass_add")
+            new_user = st.text_input("အကောင့်အသစ် Username", key="new_user_add")
+            new_pass = st.text_input("အကောင့်အသစ် Password", type="password", key="new_pass_add")
+            
+            if st.button("အကောင့်ထည့်မည်", type="primary"):
+                # Verify admin credentials
+                if admin_user == "admin" and admin_pass == "1632022":
+                    if new_user and new_pass:
+                        if new_user not in USERS_DATABASE:
+                            # Update the users database
+                            USERS_DATABASE[new_user] = {
+                                "password": new_pass,
+                                "sheet_url": "",
+                                "script_url": "",
+                                "number_limit": 50000,
+                                "za_rate": 80
+                            }
+                            st.success(f"✅ {new_user} အကောင့်ထည့်ပြီးပါပြီ")
+                            time.sleep(2)
+                            st.query_params.clear()
+                            st.rerun()
+                        else:
+                            st.error("❌ Username ရှိပြီးသားဖြစ်နေပါသည်")
+                    else:
+                        st.error("❌ Username နှင့် Password ထည့်ပါ")
+                else:
+                    st.error("❌ Admin credentials မှားနေပါသည်")
+            
+            if st.button("မထည့်တော့ပါ", type="secondary"):
+                st.query_params.clear()
+                st.rerun()
         else:
-            st.info("📭 အကောင့်မရှိသေးပါ")
+            # Show existing users
+            if USERS_DATABASE:
+                user_list = list(USERS_DATABASE.keys())
+                cols = 3
+                rows = (len(user_list) + cols - 1) // cols
+                
+                for i in range(rows):
+                    col_list = st.columns(cols)
+                    for j in range(cols):
+                        idx = i * cols + j
+                        if idx < len(user_list):
+                            username = user_list[idx]
+                            with col_list[j]:
+                                st.text(f"👤 {username}")
+                                if username != "admin":
+                                    if st.button(f"🗑️", key=f"del_{username}"):
+                                        # Only admin can delete
+                                        st.warning(f"{username} ကိုဖျက်ရန် admin ဝင်ရောက်ပါ")
+            else:
+                st.info("📭 အကောင့်မရှိသေးပါ")
+            
+            if st.button("➕ Add New User", type="secondary"):
+                st.query_params["add_user"] = "true"
+                st.rerun()
     
     st.stop()
 
-user = st.session_state.user
-current_user_data = users_db[user]
-
 # =========================
-# Admin Management Page
+# Main Application (After Login)
 # =========================
-if user == "admin":
-    with st.sidebar.expander("👑 Admin Management", expanded=False):
-        st.markdown("### အကောင့်များစီမံခန့်ခွဲမှု")
-        
-        # List all users
-        st.markdown("#### 👥 အကောင့်များ")
-        for username in list(users_db.keys()):
-            col1, col2, col3 = st.columns([3, 2, 1])
-            with col1:
-                st.text(f"👤 {username}")
-            with col2:
-                if username != "admin":
-                    if st.button("🗑️", key=f"del_{username}"):
-                        if delete_user(username):
-                            st.success(f"✅ {username} ဖျက်ပြီးပါပြီ")
-                            time.sleep(1)
-                            st.rerun()
-            st.divider()
-        
-        # Change admin password
-        st.markdown("#### 🔑 Admin Password ပြောင်းရန်")
-        old_pass = st.text_input("လက်ရှိ Password", type="password", key="old_admin_pass")
-        new_pass = st.text_input("Password အသစ်", type="password", key="new_admin_pass")
-        confirm_pass = st.text_input("Password အသစ် ထပ်ရိုက်ပါ", type="password", key="confirm_admin_pass")
-        
-        if st.button("🔄 Password ပြောင်းမည်", use_container_width=True):
-            if hash_password(old_pass) == current_user_data["password_hash"]:
-                if new_pass and new_pass == confirm_pass:
-                    save_user("admin", new_pass, current_user_data["sheet"], current_user_data["script"])
-                    st.success("✅ Password ပြောင်းပြီးပါပြီ")
-                    time.sleep(1)
-                    st.rerun()
-                else:
-                    st.error("❌ Password အသစ်များ မတူပါ")
-            else:
-                st.error("❌ လက်ရှိ Password မှားနေပါသည်")
+user = st.session_state.current_user
+user_data = st.session_state.user_data
 
 # =========================
 # Sidebar
 # =========================
 with st.sidebar:
     st.title(f"👤 {user}")
+    
+    if user == "admin":
+        st.success("👑 Admin Account")
+    else:
+        st.info("👤 User Account")
+    
     st.divider()
     
     # Debug mode toggle
-    debug_mode = st.checkbox("🐛 Debug Mode", value=st.session_state.script_debug)
-    if debug_mode != st.session_state.script_debug:
-        st.session_state.script_debug = debug_mode
+    debug_mode = st.checkbox("🐛 Debug Mode", value=st.session_state.debug_mode)
+    if debug_mode != st.session_state.debug_mode:
+        st.session_state.debug_mode = debug_mode
         st.rerun()
     
-    # User-specific settings
-    st.markdown("### ⚙️ User Settings")
-    
-    toggle_text = "🔓 Link ပြရန်" if not current_user_data["show_links"] else "🔒 Link ဖွက်ရန်"
+    # Link management
+    toggle_text = "🔒 Link ဖွက်ရန်" if st.session_state.show_links else "🔓 Link ပြရန်"
     if st.button(toggle_text, use_container_width=True):
-        current_user_data["show_links"] = not current_user_data["show_links"]
+        st.session_state.show_links = not st.session_state.show_links
         st.rerun()
     
-    if current_user_data["show_links"]:
+    if st.session_state.show_links:
         with st.container(border=True):
             st.markdown("#### 🔗 System Links")
             
-            sheet = st.text_input(
+            sheet_url = st.text_input(
                 "📊 Google Sheet URL", 
-                value=current_user_data["sheet"],
+                value=user_data.get("sheet_url", ""),
                 placeholder="https://docs.google.com/spreadsheets/d/...",
                 help="ဒေတာသိမ်းမည့် Google Sheet link",
                 key=f"sheet_{user}"
             )
             
-            script = st.text_input(
+            script_url = st.text_input(
                 "🔄 Apps Script URL", 
-                value=current_user_data["script"],
+                value=user_data.get("script_url", ""),
                 placeholder="https://script.google.com/macros/s/.../exec",
                 help="ဒေတာလက်ခံမည့် Apps Script Web App link",
                 key=f"script_{user}"
             )
             
-            if sheet != current_user_data["sheet"] or script != current_user_data["script"]:
-                current_user_data["sheet"] = sheet
-                current_user_data["script"] = script
-                # Update in users database
-                users_db[user] = current_user_data
-                st.success("✅ Links saved!")
+            if sheet_url != user_data.get("sheet_url", ""):
+                user_data["sheet_url"] = sheet_url
+                USERS_DATABASE[user]["sheet_url"] = sheet_url
+                st.success("✅ Sheet URL saved!")
             
-            if script:
+            if script_url != user_data.get("script_url", ""):
+                user_data["script_url"] = script_url
+                USERS_DATABASE[user]["script_url"] = script_url
+                st.success("✅ Script URL saved!")
+            
+            if script_url:
                 try:
-                    test_response = requests.get(script, timeout=5)
+                    test_response = requests.get(script_url, timeout=5)
                     if test_response.status_code == 200:
                         st.success("✅ Script connected")
                     else:
@@ -258,63 +225,85 @@ with st.sidebar:
     
     st.divider()
     
-    # User preferences
-    st.markdown("### ⚡ User Preferences")
-    za_rate = st.number_input(
-        "💰 ဇ (အဆ)", 
-        value=current_user_data.get("za_rate", 80), 
-        min_value=1, 
-        step=1,
-        key=f"za_rate_{user}"
-    )
+    # User settings
+    st.markdown("### ⚡ Settings")
     
     number_limit = st.number_input(
         "🎯 ဂဏန်း Limit", 
-        value=current_user_data.get("number_limit", 50000), 
+        value=user_data.get("number_limit", 50000), 
         min_value=1000, 
         step=1000,
+        help="ဂဏန်းတစ်ခုချင်းစီအတွက် အများဆုံးထိုးနိုင်သောပမာဏ",
         key=f"limit_{user}"
     )
     
-    # Save preferences
-    if za_rate != current_user_data.get("za_rate", 80) or number_limit != current_user_data.get("number_limit", 50000):
-        current_user_data["za_rate"] = za_rate
-        current_user_data["number_limit"] = number_limit
-        users_db[user] = current_user_data
+    za_rate = st.number_input(
+        "💰 ဇ (အဆ)", 
+        value=user_data.get("za_rate", 80), 
+        min_value=1, 
+        step=1,
+        help="ပေါက်ငွေတွက်ချက်ရာတွင် အမြတ်အဆ",
+        key=f"za_rate_{user}"
+    )
+    
+    # Save settings
+    if number_limit != user_data.get("number_limit", 50000):
+        user_data["number_limit"] = number_limit
+        USERS_DATABASE[user]["number_limit"] = number_limit
+    
+    if za_rate != user_data.get("za_rate", 80):
+        user_data["za_rate"] = za_rate
+        USERS_DATABASE[user]["za_rate"] = za_rate
     
     st.divider()
     
     # Win number check
     st.markdown("### 🎲 ပေါက်ဂဏန်းစစ်")
-    win_number = st.text_input("ပေါက်ဂဏန်း", max_chars=2, key=f"win_number_{user}", label_visibility="collapsed")
+    win_number = st.text_input("ပေါက်ဂဏန်း", max_chars=2, label_visibility="collapsed")
     
     st.divider()
     
     # System info
     st.markdown("### ℹ️ System Info")
-    last_refresh_time = st.session_state.last_refresh.strftime("%I:%M:%S %p") if st.session_state.last_refresh else "Never"
-    st.caption(f"Last refresh: {last_refresh_time}")
+    st.caption(f"📅 ရက်စွဲ: {TODAY}")
+    st.caption(f"🎯 Limit: {number_limit:,} ကျပ်")
+    st.caption(f"💰 ဇအဆ: {za_rate}")
+    
+    if st.session_state.last_refresh:
+        last_refresh_time = st.session_state.last_refresh.strftime("%I:%M:%S %p")
+        st.caption(f"🕐 Last update: {last_refresh_time}")
     
     if st.button("🔄 Refresh Data", use_container_width=True):
         st.session_state.last_refresh = datetime.now()
         st.rerun()
     
+    # Admin features
+    if user == "admin":
+        st.divider()
+        st.markdown("### 👑 Admin Tools")
+        if st.button("👥 Manage Users", use_container_width=True):
+            st.session_state.authenticated = False
+            st.query_params.clear()
+            st.rerun()
+    
     if st.button("🚪 Logout", type="secondary", use_container_width=True):
-        st.session_state.login = False
-        st.session_state.user = None
+        st.session_state.authenticated = False
+        st.session_state.current_user = None
+        st.session_state.user_data = None
         st.rerun()
 
-# Use user-specific settings
-sheet = current_user_data["sheet"]
-script = current_user_data["script"]
-NUMBER_LIMIT = current_user_data.get("number_limit", 50000)
+# Get user settings
+sheet = user_data.get("sheet_url", "")
+script = user_data.get("script_url", "")
+NUMBER_LIMIT = user_data.get("number_limit", 50000)
+ZA_RATE = user_data.get("za_rate", 80)
 
 # =========================
 # Debug Functions
 # =========================
 def debug_log(message, data=None):
     """Log debug messages if debug mode is enabled"""
-    if st.session_state.script_debug:
+    if st.session_state.debug_mode:
         timestamp = datetime.now().strftime("%H:%M:%S")
         st.markdown(f"`[{timestamp}] {message}`")
         if data is not None:
@@ -347,33 +336,26 @@ def load_sheet_data():
             st.error("❌ Google Sheet URL မှားယွင်းနေပါသည်")
             return None, None
         
-        # Add timestamp to prevent caching
         full_url = f"{csv_url_str}&t={int(time.time())}"
         debug_log(f"Loading data from: {full_url}")
         
-        # Read CSV
         df = pd.read_csv(full_url)
         debug_log(f"Raw data loaded: {len(df)} rows, {len(df.columns)} columns")
         
-        # Clean column names
         df.columns = df.columns.str.strip()
         debug_log("Columns after cleaning:", list(df.columns))
         
-        # Ensure required columns exist
         required_columns = ["Date", "Time", "Customer", "Number", "Amount", "Receipt"]
         for col in required_columns:
             if col not in df.columns:
                 df[col] = ""
                 debug_log(f"Added missing column: {col}")
         
-        # Format data
         df["Number"] = df["Number"].astype(str).str.zfill(2)
         df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
         
-        # Store original sheet row number (for updates)
         df['sheet_row'] = df.index + 2
         
-        # Filter today's data
         today_df = df[df["Date"] == TODAY].copy()
         
         debug_log(f"Data processing complete - Total rows: {len(df)}, Today's rows: {len(today_df)}")
@@ -389,24 +371,27 @@ def load_sheet_data():
 df, today_df = load_sheet_data()
 
 if df is None or today_df is None:
-    st.warning("📋 ဒေတာမရှိသေးပါ")
+    st.warning("📋 ဒေတာမရှိသေးပါ / Setup မပြည့်စုံသေးပါ")
     
-    # Show sample data structure
-    with st.expander("📁 Expected Sheet Structure"):
+    with st.expander("🔧 Setup Instructions", expanded=True):
         st.markdown("""
+        ### 📝 Setup လုပ်ရန်
+        
+        1. Sidebar မှာ **"Link ပြရန်"** ကိုနှိပ်ပါ
+        2. Google Sheet URL နှင့် Apps Script URL ထည့်ပါ
+        3. Save လုပ်ပါ
+        
+        **Sample Data Structure:**
         | Date | Time | Customer | Number | Amount | Receipt |
         |------|------|----------|--------|--------|---------|
-        | 2024-01-20 | 10:30 AM | John | 12 | 1000 | R-2024-01-20-0001 |
-        | 2024-01-20 | 11:00 AM | Mary | 45 | 2000 | R-2024-01-20-0002 |
-        
-        **Note:** Column names must be exactly as shown above.
+        | 2024-01-20 | 10:30 AM | ဉာဏ်လင်း | 12 | 1000 | R-2024-01-20-0001 |
         """)
     st.stop()
 
 # =========================
 # Dashboard
 # =========================
-st.title(f"💰 2D Agent Pro Dashboard - {user}")
+st.title(f"💰 2D Agent Pro - {user}")
 
 # Stats row
 col1, col2, col3, col4 = st.columns(4)
@@ -415,7 +400,7 @@ with col1:
     st.metric("📊 ဒီနေ့စုစုပေါင်း", f"{total_today:,.0f} ကျပ်")
 with col2:
     total_transactions = len(today_df)
-    st.metric("🔄 ဒီနေ့လုပ်ဆောင်ချက်များ", f"{total_transactions}")
+    st.metric("🔄 ဒီနေ့လုပ်ဆောင်ချက်", f"{total_transactions}")
 with col3:
     avg_amount = total_today / total_transactions if total_transactions > 0 else 0
     st.metric("📈 ပျမ်းမျှထိုးငွေ", f"{avg_amount:,.0f} ကျပ်")
@@ -423,7 +408,7 @@ with col4:
     if not today_df.empty:
         popular_num = today_df.groupby('Number')['Amount'].sum().idxmax()
         popular_amount = today_df.groupby('Number')['Amount'].sum().max()
-        st.metric("🔥 လူကြိုက်အများဆုံးဂဏန်း", f"{popular_num} ({popular_amount:,.0f} ကျပ်)")
+        st.metric("🔥 လူကြိုက်အများဆုံး", f"{popular_num} ({popular_amount:,.0f})")
 
 st.divider()
 
@@ -442,7 +427,6 @@ with st.expander("📝 စာရင်းအသစ်ထည့်ရန်", exp
         with c3:
             amount = st.number_input("💰 ပိုက်ဆံပမာဏ", min_value=100, step=100, value=1000)
         
-        # Check limit for the selected number
         if number:
             number = number.zfill(2)
             used_amount = today_df[today_df["Number"] == number]["Amount"].sum()
@@ -508,12 +492,11 @@ if win_number and win_number.strip():
     winners = today_df[today_df["Number"] == win_number].copy()
     
     if not winners.empty:
-        winners["လျော်ကြေး"] = winners["Amount"] * za_rate
+        winners["လျော်ကြေး"] = winners["Amount"] * ZA_RATE
         total_payout = winners["လျော်ကြေး"].sum()
         
         st.success(f"🎉 ပေါက်သူများ (ဂဏန်း: {win_number}) - စုစုပေါင်းလျော်ကြေး: {total_payout:,.0f} ကျပ်")
         
-        # Display in a nice table
         display_df = winners[["Customer", "Number", "Amount", "လျော်ကြေး"]].copy()
         display_df["Amount"] = display_df["Amount"].apply(lambda x: f"{x:,.0f}")
         display_df["လျော်ကြေး"] = display_df["လျော်ကြေး"].apply(lambda x: f"{x:,.0f}")
@@ -556,7 +539,6 @@ else:
                 if st.form_submit_button("🔄 ပြင်မည်", use_container_width=True):
                     nu = nu.zfill(2)
                     
-                    # Check if changing number would exceed limit
                     if nu != r.Number:
                         used_amount = today_df[today_df["Number"] == nu]["Amount"].sum()
                         if used_amount + am > NUMBER_LIMIT:
@@ -600,36 +582,29 @@ st.divider()
 # =========================
 st.subheader("📋 ဒီနေ့စာရင်းဇယား")
 
-# Search and filter
 search_col1, search_col2 = st.columns([3, 1])
 with search_col1:
     search = st.text_input("🔍 နာမည်ဖြင့်ရှာရန်", placeholder="ထိုးသူအမည်ရိုက်ထည့်ပါ...")
 with search_col2:
     sort_by = st.selectbox("အစဉ်လိုက်စီရန်", ["Time", "Amount", "Number", "Customer"])
 
-# Prepare data for display
 view_df = today_df.drop(columns=['sheet_row']).copy()
 
-# Apply search filter
 if search:
     view_df = view_df[view_df["Customer"].str.contains(search, case=False, na=False)]
 
-# Sort data
 if sort_by == "Amount":
     view_df = view_df.sort_values(by="Amount", ascending=False)
 elif sort_by == "Number":
     view_df = view_df.sort_values(by="Number")
 elif sort_by == "Customer":
     view_df = view_df.sort_values(by="Customer")
-else:  # Time
+else:
     view_df = view_df.sort_values(by="Time", ascending=False)
 
-# Display summary
 st.caption(f"📊 စုစုပေါင်း {len(view_df)} ခု | စုစုပေါင်းငွေ: {view_df['Amount'].sum():,.0f} ကျပ်")
 
-# Display data table
 if not view_df.empty:
-    # Format the display
     display_df = view_df.copy()
     display_df["Amount"] = display_df["Amount"].apply(lambda x: f"{x:,.0f}")
     
@@ -662,7 +637,6 @@ with col1:
     with st.container(border=True):
         st.markdown("### 📄 Data Export")
         
-        # Export options
         export_format = st.radio("ဖိုင်အမျိုးအစား", ["CSV", "Excel"], horizontal=True)
         
         if not view_df.empty:
@@ -693,7 +667,7 @@ with col2:
         
         st.warning("""
         ⚠️ သတိပေးချက်:
-        ဒီခလုတ်ကို နှိပ်လိုက်ရင် ဒီနေ့စာရင်းအားလုံး **အပြီးအပိုင် ပျက်သွားမည်**။
+        ဒီနေ့စာရင်းအားလုံး **အပြီးအပိုင် ပျက်သွားမည်**။
         မဖျက်ခင် ဒေါင်းလုဒ်ယူထားပါ။
         """)
         
@@ -721,10 +695,7 @@ with col2:
                         result = response.json()
                         st.success(f"✅ {result.get('status', 'အောင်မြင်စွာဖျက်ပြီးပါပြီ')}")
                         
-                        # Show notification
                         st.balloons()
-                        
-                        # Wait and refresh
                         time.sleep(2)
                         st.session_state.last_refresh = datetime.now()
                         st.rerun()
@@ -741,37 +712,26 @@ with col2:
 # =========================
 # Debug Panel
 # =========================
-if st.session_state.script_debug:
+if st.session_state.debug_mode:
     with st.expander("🐛 Debug Information", expanded=False):
         st.subheader("System Information")
         
         col1, col2 = st.columns(2)
         with col1:
             st.metric("Current User", user)
-            st.metric("Script URL", script[:50] + "..." if len(script) > 50 else script)
-        with col2:
             st.metric("Number Limit", f"{NUMBER_LIMIT:,}")
+        with col2:
             st.metric("Sheet URL", sheet[:50] + "..." if len(sheet) > 50 else sheet)
+            st.metric("Script URL", script[:50] + "..." if len(script) > 50 else script)
         
         st.subheader("Data Preview")
-        tab1, tab2, tab3 = st.tabs(["Today's Data", "All Data", "Raw Info"])
+        tab1, tab2 = st.tabs(["Today's Data", "All Data"])
         
         with tab1:
             st.dataframe(today_df, use_container_width=True)
-            st.json(today_df.to_dict(orient='records')[:5] if not today_df.empty else {})
         
         with tab2:
             st.dataframe(df, use_container_width=True)
-        
-        with tab3:
-            st.code(f"""
-            System Time (MM): {datetime.now(MM_TZ).strftime("%Y-%m-%d %I:%M:%S %p")}
-            Today String: {TODAY}
-            Data Shape: {df.shape if df is not None else 'N/A'}
-            Today Data Shape: {today_df.shape if today_df is not None else 'N/A'}
-            Session User: {user}
-            Total Users: {len(users_db)}
-            """)
 
 # =========================
 # Footer
@@ -780,10 +740,10 @@ st.divider()
 footer_col1, footer_col2, footer_col3 = st.columns(3)
 with footer_col1:
     st.caption(f"👤 User: {user}")
-    st.caption(f"🕐 Last updated: {datetime.now(MM_TZ).strftime('%I:%M:%S %p')}")
+    st.caption(f"🕐 Last update: {datetime.now(MM_TZ).strftime('%I:%M:%S %p')}")
 with footer_col2:
     st.caption(f"📅 Date: {TODAY}")
     st.caption(f"🎯 Limit: {NUMBER_LIMIT:,} ကျပ်")
 with footer_col3:
     st.caption("💻 2D Agent Pro v2.0")
-    st.caption(f"💰 Za Rate: {za_rate}")
+    st.caption(f"💰 Za Rate: {ZA_RATE}")
