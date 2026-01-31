@@ -8,7 +8,7 @@ import re
 # --- ၁။ Page Setup ---
 st.set_page_config(page_title="2D Agent Pro", layout="wide", page_icon="💰")
 
-# --- ၂။ Link Persistence (Link တွေ မပျောက်အောင် Cache လုပ်ထားခြင်း) ---
+# --- ၂။ Link Persistence (Refresh လုပ်လည်း မပျောက်စေရန်) ---
 if "links" not in st.session_state:
     st.session_state["links"] = {"sheet": "", "script": ""}
 
@@ -39,7 +39,7 @@ st.sidebar.title(f"👋 {st.session_state['username']}")
 with st.sidebar.expander("🛠 Software Setup"):
     in_sheet = st.text_input("Google Sheet URL", value=st.session_state["links"]["sheet"])
     in_script = st.text_input("Apps Script URL", value=st.session_state["links"]["script"])
-    if st.button("✅ Save Links"):
+    if st.button("✅ Save Links Permanently"):
         st.session_state["links"]["sheet"] = in_sheet
         st.session_state["links"]["script"] = in_script
         st.success("သိမ်းဆည်းပြီးပါပြီ။")
@@ -85,55 +85,4 @@ with st.expander("📝 စာရင်းအသစ်သွင်းရန်"):
         f_amt = st.number_input("ပိုက်ဆံပမာဏ", min_value=100, step=100)
         if st.form_submit_button("✅ သိမ်းဆည်းမည်"):
             if f_name and f_num:
-                mm_time = datetime.now(timezone(timedelta(hours=6, minutes=30))).strftime("%I:%M %p")
-                try:
-                    requests.post(script_url, json={"action": "insert", "Customer": f_name, "Number": str(f_num).zfill(2), "Amount": int(f_amt), "Time": mm_time})
-                    st.success("သွင်းပြီးပါပြီ။")
-                    time.sleep(1.5)
-                    st.rerun()
-                except:
-                    st.error("❌ ပေးပို့မှု Error တက်နေပါသည်။")
-
-# --- ၈။ ပြင်ဆင်ခြင်း (တစ်ခုချင်းစီပြင်တာ သေချာပေါက် အလုပ်လုပ်စေရန်) ---
-st.divider()
-st.subheader("⚙️ စာရင်းများ ပြင်ဆင်ရန်")
-
-if not df.empty:
-    for i, row in df.iterrows():
-        # Syntax Error fix: bracket သေချာပိတ်သည်
-        actual_row = int(i) + 2
-        with st.expander(f"👤 {row['Customer']} | 🔢 {row['Number']} | 💰 {row['Amount']} Ks"):
-            with st.form(f"edit_form_{i}"):
-                e_name = st.text_input("အမည်ပြင်ရန်", value=row['Customer'])
-                e_num = st.text_input("ဂဏန်းပြင်ရန်", value=row['Number'], max_chars=2)
-                e_amt = st.number_input("ပမာဏပြင်ရန်", value=int(row['Amount']))
-                
-                if st.form_submit_button("💾 သိမ်းဆည်းမည်"):
-                    try:
-                        res = requests.post(script_url, json={
-                            "action": "update", "row_index": actual_row,
-                            "Customer": e_name, "Number": str(e_num).zfill(2), "Amount": int(e_amt)
-                        })
-                        if res.status_code == 200:
-                            st.success("✅ ပြင်ဆင်ပြီးပါပြီ။ ခဏစောင့်ပါ...")
-                            # Sheet ဘက်မှာ update ဖြစ်ချိန်ကို စောင့်ပေးခြင်း
-                            time.sleep(2) 
-                            st.rerun()
-                        else:
-                            st.error("❌ Apps Script URL ကို စစ်ဆေးပါ။")
-                    except:
-                        st.error("❌ ပြင်မရပါ။")
-
-# --- ၉။ အရောင်းဇယား ---
-st.divider()
-st.subheader("📊 အရောင်းဇယား")
-st.dataframe(df, use_container_width=True, hide_index=True)
-
-if st.button("🔥 စာရင်းအားလုံးဖျက်မည်"):
-    try:
-        requests.post(script_url, json={"action": "clear_all"})
-        st.warning("ဖျက်ပြီးပါပြီ။")
-        time.sleep(2)
-        st.rerun()
-    except:
-        st.error("❌ ဖျက်မရပါ။")
+                mm_time = datetime.now(timezone(timedelta(hours=6, minutes=30))).
