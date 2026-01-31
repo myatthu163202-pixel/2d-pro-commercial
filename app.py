@@ -75,7 +75,7 @@ def get_csv_url(url):
 
 try:
     csv_url = get_csv_url(sheet_url)
-    # cachebuster သုံးပြီး Update ဖြစ်ထားတဲ့ ဒေတာအသစ်ကို အတင်းဆွဲယူခိုင်းခြင်း
+    # cachebuster သုံးပြီး data အသစ်ကို ချက်ချင်းဆွဲယူသည်
     df = pd.read_csv(f"{csv_url}&cachebuster={int(time.time())}")
     df.columns = df.columns.str.strip()
     df['Number'] = df['Number'].astype(str).str.zfill(2)
@@ -108,11 +108,54 @@ with st.expander("📝 စာရင်းအသစ်သွင်းရန်"):
                     # Bracket fix
                     st.error("❌ ချိတ်ဆက်မှု Error တက်နေပါသည်။")
 
-# --- ၈။ ပြင်ဆင်ခြင်းအပိုင်း (တစ်ခုချင်းစီပြင်တာ သေချာပေါက် အလုပ်လုပ်စေရန်) ---
+# --- ၈။ ပြင်ဆင်ခြင်းအပိုင်း (တစ်ခုချင်းစီပြင်တာကို သေချာပေါက် ပြင်ထားသည်) ---
 st.divider()
 st.subheader("⚙️ စာရင်းများ ပြင်ဆင်ရန်")
 
 if not df.empty:
     for i, row in df.iterrows():
-        # Sheet ထဲက Row Index အမှန်ကို တွက်ခြင်း (Header က ၁ ဖြစ်လို့ ၂ ပေါင်းပေးရသည်)
-        actual_row = int(i
+        # Sheet Row Index တွက်ချက်ခြင်း (Syntax Error fix: int(i) ကို သေချာပိတ်သည်)
+        actual_row = int(i) + 2
+        
+        with st.expander(f"👤 {row['Customer']} | 🔢 {row['Number']} | 💰 {row['Amount']} Ks"):
+            with st.form(f"edit_form_{i}"):
+                e_name = st.text_input("အမည်ပြင်ရန်", value=row['Customer'])
+                e_num = st.text_input("ဂဏန်းပြင်ရန်", value=row['Number'], max_chars=2)
+                e_amt = st.number_input("ပမာဏပြင်ရန်", value=int(row['Amount']), step=100)
+                
+                if st.form_submit_button("💾 ပြင်ဆင်မှုသိမ်းမည်"):
+                    try:
+                        # Google Apps Script ထံသို့ update ပို့ခြင်း
+                        res = requests.post(script_url, json={
+                            "action": "update", 
+                            "row_index": actual_row,
+                            "Customer": e_name, 
+                            "Number": str(e_num).zfill(2), 
+                            "Amount": int(e_amt)
+                        })
+                        if res.status_code == 200:
+                            st.success("✅ ပြင်ဆင်ပြီးပါပြီ။ ဇယားကို Update လုပ်နေသည်...")
+                            time.sleep(2) # Sheet update ဖြစ်ချိန်စောင့်ပေးခြင်း
+                            st.rerun()
+                        else:
+                            st.error("❌ Apps Script URL ကို စစ်ဆေးပါ။")
+                    except Exception:
+                        st.error("❌ ပြင်မရပါ။")
+
+# --- ၉။ အရောင်းဇယား ---
+st.divider()
+st.subheader("📊 အရောင်းဇယား")
+search_name = st.text_input("🔎 နာမည်ဖြင့်ရှာရန်")
+filtered_df = df[df['Customer'].str.contains(search_name, case=False, na=False)] if search_name else df
+st.dataframe(filtered_df, use_container_width=True, hide_index=True)
+
+# အကုန်ဖျက်ရန်
+if st.button("🔥 စာရင်းအားလုံးဖျက်မည်"):
+    try:
+        requests.post(script_url, json={"action": "clear_all"})
+        st.warning("ဖျက်ပြီးပါပြီ။")
+        time.sleep(2)
+        st.rerun()
+    except Exception:
+        # Error fix
+        st.error("❌ Error တက်သွားပါသည်။")
