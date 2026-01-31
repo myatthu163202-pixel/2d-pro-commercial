@@ -18,26 +18,18 @@ st.set_page_config(
 # =========================
 MM_TZ = timezone(timedelta(hours=6, minutes=30))  
 TODAY = datetime.now(MM_TZ).strftime("%Y-%m-%d")
+MAX_NUMBER_LIMIT = 50000  # ဂဏန်းတစ်ကွက်ကို ၅သောင်းကျပ်
 
 # =========================
-# User Database (Hardcoded)
+# User Database
 # =========================
 USERS_DATABASE = {
     "admin": {
-        "password": "1632022",  # Admin password
+        "password": "1632022",
         "sheet_url": "",
         "script_url": "",
-        "number_limit": 50000,
         "za_rate": 80
     }
-    # Add more users here in format:
-    # "username": {
-    #     "password": "password123",
-    #     "sheet_url": "",
-    #     "script_url": "",
-    #     "number_limit": 50000,
-    #     "za_rate": 80
-    # }
 }
 
 # =========================
@@ -50,6 +42,7 @@ if "authenticated" not in st.session_state:
     st.session_state.debug_mode = False
     st.session_state.last_refresh = None
     st.session_state.show_links = True
+    st.session_state.number_limits_cache = {}  # Cache for number limits
 
 # =========================
 # Login Page
@@ -65,95 +58,57 @@ if not st.session_state.authenticated:
             username = st.text_input("👤 Username", key="login_username")
             password = st.text_input("🔒 Password", type="password", key="login_password")
             
-            col_btn1, col_btn2 = st.columns(2)
-            with col_btn1:
-                if st.button("🚀 Login", type="primary", use_container_width=True):
-                    if username in USERS_DATABASE:
-                        if USERS_DATABASE[username]["password"] == password:
-                            st.session_state.authenticated = True
-                            st.session_state.current_user = username
-                            st.session_state.user_data = USERS_DATABASE[username].copy()
-                            st.session_state.last_refresh = datetime.now()
-                            st.rerun()
-                        else:
-                            st.error("❌ Password မှားနေပါသည်")
+            if st.button("🚀 Login", type="primary", use_container_width=True):
+                if username in USERS_DATABASE:
+                    if USERS_DATABASE[username]["password"] == password:
+                        st.session_state.authenticated = True
+                        st.session_state.current_user = username
+                        st.session_state.user_data = USERS_DATABASE[username].copy()
+                        st.session_state.last_refresh = datetime.now()
+                        st.rerun()
                     else:
-                        st.error("❌ Username မရှိပါ")
-            
-            with col_btn2:
-                if st.button("➕ Add User", use_container_width=True):
-                    st.switch_page("?add_user=true") if "add_user" not in st.query_params else None
+                        st.error("❌ Password မှားနေပါသည်")
+                else:
+                    st.error("❌ Username မရှိပါ")
     
-    # User Management Section (Visible to all)
+    # Add User Section
     with st.container(border=True):
-        st.markdown("### 👥 အကောင့်များ")
+        st.markdown("### ➕ အကောင့်အသစ်ထည့်ရန်")
         
-        # Add new user form
-        if st.query_params.get("add_user") == "true":
-            st.markdown("#### အကောင့်အသစ်ထည့်ရန်")
+        with st.form("add_user_form"):
+            admin_user = st.text_input("Admin Username")
+            admin_pass = st.text_input("Admin Password", type="password")
+            new_user = st.text_input("အကောင့်အသစ် Username")
+            new_pass = st.text_input("အကောင့်အသစ် Password", type="password")
+            confirm_pass = st.text_input("Password ထပ်ရိုက်ပါ", type="password")
             
-            admin_user = st.text_input("Admin Username", key="admin_user_add")
-            admin_pass = st.text_input("Admin Password", type="password", key="admin_pass_add")
-            new_user = st.text_input("အကောင့်အသစ် Username", key="new_user_add")
-            new_pass = st.text_input("အကောင့်အသစ် Password", type="password", key="new_pass_add")
-            
-            if st.button("အကောင့်ထည့်မည်", type="primary"):
-                # Verify admin credentials
+            if st.form_submit_button("အကောင့်ထည့်မည်", type="secondary"):
                 if admin_user == "admin" and admin_pass == "1632022":
-                    if new_user and new_pass:
-                        if new_user not in USERS_DATABASE:
-                            # Update the users database
-                            USERS_DATABASE[new_user] = {
-                                "password": new_pass,
-                                "sheet_url": "",
-                                "script_url": "",
-                                "number_limit": 50000,
-                                "za_rate": 80
-                            }
-                            st.success(f"✅ {new_user} အကောင့်ထည့်ပြီးပါပြီ")
-                            time.sleep(2)
-                            st.query_params.clear()
-                            st.rerun()
+                    if new_user and new_pass and confirm_pass:
+                        if new_pass == confirm_pass:
+                            if new_user not in USERS_DATABASE:
+                                USERS_DATABASE[new_user] = {
+                                    "password": new_pass,
+                                    "sheet_url": "",
+                                    "script_url": "",
+                                    "za_rate": 80
+                                }
+                                st.success(f"✅ {new_user} အကောင့်ထည့်ပြီးပါပြီ")
+                                time.sleep(2)
+                                st.rerun()
+                            else:
+                                st.error("❌ Username ရှိပြီးသားဖြစ်နေပါသည်")
                         else:
-                            st.error("❌ Username ရှိပြီးသားဖြစ်နေပါသည်")
+                            st.error("❌ Password များမတူပါ")
                     else:
-                        st.error("❌ Username နှင့် Password ထည့်ပါ")
+                        st.error("❌ အကောင့်အချက်အလက်များ ဖြည့်ပါ")
                 else:
                     st.error("❌ Admin credentials မှားနေပါသည်")
-            
-            if st.button("မထည့်တော့ပါ", type="secondary"):
-                st.query_params.clear()
-                st.rerun()
-        else:
-            # Show existing users
-            if USERS_DATABASE:
-                user_list = list(USERS_DATABASE.keys())
-                cols = 3
-                rows = (len(user_list) + cols - 1) // cols
-                
-                for i in range(rows):
-                    col_list = st.columns(cols)
-                    for j in range(cols):
-                        idx = i * cols + j
-                        if idx < len(user_list):
-                            username = user_list[idx]
-                            with col_list[j]:
-                                st.text(f"👤 {username}")
-                                if username != "admin":
-                                    if st.button(f"🗑️", key=f"del_{username}"):
-                                        # Only admin can delete
-                                        st.warning(f"{username} ကိုဖျက်ရန် admin ဝင်ရောက်ပါ")
-            else:
-                st.info("📭 အကောင့်မရှိသေးပါ")
-            
-            if st.button("➕ Add New User", type="secondary"):
-                st.query_params["add_user"] = "true"
-                st.rerun()
     
     st.stop()
 
 # =========================
-# Main Application (After Login)
+# Main Application
 # =========================
 user = st.session_state.current_user
 user_data = st.session_state.user_data
@@ -171,7 +126,7 @@ with st.sidebar:
     
     st.divider()
     
-    # Debug mode toggle
+    # Debug mode
     debug_mode = st.checkbox("🐛 Debug Mode", value=st.session_state.debug_mode)
     if debug_mode != st.session_state.debug_mode:
         st.session_state.debug_mode = debug_mode
@@ -191,16 +146,14 @@ with st.sidebar:
                 "📊 Google Sheet URL", 
                 value=user_data.get("sheet_url", ""),
                 placeholder="https://docs.google.com/spreadsheets/d/...",
-                help="ဒေတာသိမ်းမည့် Google Sheet link",
-                key=f"sheet_{user}"
+                help="ဒေတာသိမ်းမည့် Google Sheet link"
             )
             
             script_url = st.text_input(
                 "🔄 Apps Script URL", 
                 value=user_data.get("script_url", ""),
                 placeholder="https://script.google.com/macros/s/.../exec",
-                help="ဒေတာလက်ခံမည့် Apps Script Web App link",
-                key=f"script_{user}"
+                help="ဒေတာလက်ခံမည့် Apps Script Web App link"
             )
             
             if sheet_url != user_data.get("sheet_url", ""):
@@ -212,44 +165,23 @@ with st.sidebar:
                 user_data["script_url"] = script_url
                 USERS_DATABASE[user]["script_url"] = script_url
                 st.success("✅ Script URL saved!")
-            
-            if script_url:
-                try:
-                    test_response = requests.get(script_url, timeout=5)
-                    if test_response.status_code == 200:
-                        st.success("✅ Script connected")
-                    else:
-                        st.warning(f"⚠️ Script responded with {test_response.status_code}")
-                except:
-                    st.error("❌ Cannot connect to script")
     
     st.divider()
     
-    # User settings
+    # Settings
     st.markdown("### ⚡ Settings")
-    
-    number_limit = st.number_input(
-        "🎯 ဂဏန်း Limit", 
-        value=user_data.get("number_limit", 50000), 
-        min_value=1000, 
-        step=1000,
-        help="ဂဏန်းတစ်ခုချင်းစီအတွက် အများဆုံးထိုးနိုင်သောပမာဏ",
-        key=f"limit_{user}"
-    )
     
     za_rate = st.number_input(
         "💰 ဇ (အဆ)", 
         value=user_data.get("za_rate", 80), 
         min_value=1, 
         step=1,
-        help="ပေါက်ငွေတွက်ချက်ရာတွင် အမြတ်အဆ",
-        key=f"za_rate_{user}"
+        help="ပေါက်ငွေတွက်ချက်ရာတွင် အမြတ်အဆ"
     )
     
-    # Save settings
-    if number_limit != user_data.get("number_limit", 50000):
-        user_data["number_limit"] = number_limit
-        USERS_DATABASE[user]["number_limit"] = number_limit
+    # Display current limit
+    st.info(f"**🎯 ဂဏန်းအလိုက် Limit:** {MAX_NUMBER_LIMIT:,} ကျပ်")
+    st.caption("(ဂဏန်းတစ်ကွက်ကို မြန်မာငွေ ၅သောင်းကျပ် အထိသာ လက်ခံပါသည်)")
     
     if za_rate != user_data.get("za_rate", 80):
         user_data["za_rate"] = za_rate
@@ -257,17 +189,26 @@ with st.sidebar:
     
     st.divider()
     
+    # Check specific number
+    st.markdown("### 🔍 ဂဏန်းစစ်ဆေးရန်")
+    check_number = st.text_input("ဂဏန်း", max_chars=2, key="check_number", label_visibility="collapsed")
+    
+    if check_number:
+        check_number = check_number.zfill(2)
+        if st.button("စစ်ဆေးမည်", use_container_width=True):
+            st.session_state.checking_number = check_number
+    
     # Win number check
     st.markdown("### 🎲 ပေါက်ဂဏန်းစစ်")
-    win_number = st.text_input("ပေါက်ဂဏန်း", max_chars=2, label_visibility="collapsed")
+    win_number = st.text_input("ပေါက်ဂဏန်း", max_chars=2, key="win_number", label_visibility="collapsed")
     
     st.divider()
     
     # System info
     st.markdown("### ℹ️ System Info")
     st.caption(f"📅 ရက်စွဲ: {TODAY}")
-    st.caption(f"🎯 Limit: {number_limit:,} ကျပ်")
     st.caption(f"💰 ဇအဆ: {za_rate}")
+    st.caption(f"🎯 ဂဏန်း Limit: {MAX_NUMBER_LIMIT:,} ကျပ်")
     
     if st.session_state.last_refresh:
         last_refresh_time = st.session_state.last_refresh.strftime("%I:%M:%S %p")
@@ -275,34 +216,25 @@ with st.sidebar:
     
     if st.button("🔄 Refresh Data", use_container_width=True):
         st.session_state.last_refresh = datetime.now()
+        st.session_state.number_limits_cache = {}
         st.rerun()
-    
-    # Admin features
-    if user == "admin":
-        st.divider()
-        st.markdown("### 👑 Admin Tools")
-        if st.button("👥 Manage Users", use_container_width=True):
-            st.session_state.authenticated = False
-            st.query_params.clear()
-            st.rerun()
     
     if st.button("🚪 Logout", type="secondary", use_container_width=True):
         st.session_state.authenticated = False
         st.session_state.current_user = None
         st.session_state.user_data = None
+        st.session_state.number_limits_cache = {}
         st.rerun()
 
 # Get user settings
 sheet = user_data.get("sheet_url", "")
 script = user_data.get("script_url", "")
-NUMBER_LIMIT = user_data.get("number_limit", 50000)
 ZA_RATE = user_data.get("za_rate", 80)
 
 # =========================
 # Debug Functions
 # =========================
 def debug_log(message, data=None):
-    """Log debug messages if debug mode is enabled"""
     if st.session_state.debug_mode:
         timestamp = datetime.now().strftime("%H:%M:%S")
         st.markdown(f"`[{timestamp}] {message}`")
@@ -310,22 +242,39 @@ def debug_log(message, data=None):
             st.json(data)
 
 # =========================
+# Check Number Limit
+# =========================
+def check_number_limit(number):
+    """Check how much is remaining for a specific number"""
+    try:
+        if not script:
+            return None
+        
+        payload = {"action": "check_limit", "number": number}
+        response = requests.post(script, json=payload, timeout=5)
+        
+        if response.status_code == 200:
+            result = response.json()
+            if result.get("status") == "limit_info":
+                return result
+        return None
+    except:
+        return None
+
+# =========================
 # Load Google Sheet
 # =========================
 def csv_url(url):
-    """Convert Google Sheet URL to CSV export URL"""
     try:
         m = re.search(r"/d/([a-zA-Z0-9-_]+)", url)
         if m:
             file_id = m.group(1)
             return f"https://docs.google.com/spreadsheets/d/{file_id}/export?format=csv"
         return ""
-    except Exception as e:
-        debug_log(f"Error parsing sheet URL: {str(e)}")
+    except:
         return ""
 
 def load_sheet_data():
-    """Load data from Google Sheet"""
     try:
         if not sheet:
             st.error("⚠️ Google Sheet URL မထည့်ရသေးပါ")
@@ -340,16 +289,13 @@ def load_sheet_data():
         debug_log(f"Loading data from: {full_url}")
         
         df = pd.read_csv(full_url)
-        debug_log(f"Raw data loaded: {len(df)} rows, {len(df.columns)} columns")
         
         df.columns = df.columns.str.strip()
-        debug_log("Columns after cleaning:", list(df.columns))
         
         required_columns = ["Date", "Time", "Customer", "Number", "Amount", "Receipt"]
         for col in required_columns:
             if col not in df.columns:
                 df[col] = ""
-                debug_log(f"Added missing column: {col}")
         
         df["Number"] = df["Number"].astype(str).str.zfill(2)
         df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
@@ -358,12 +304,20 @@ def load_sheet_data():
         
         today_df = df[df["Date"] == TODAY].copy()
         
-        debug_log(f"Data processing complete - Total rows: {len(df)}, Today's rows: {len(today_df)}")
+        # Calculate limits for all numbers
+        if not today_df.empty:
+            number_totals = today_df.groupby('Number')['Amount'].sum()
+            for num, total in number_totals.items():
+                st.session_state.number_limits_cache[num] = {
+                    'current_total': total,
+                    'remaining': MAX_NUMBER_LIMIT - total,
+                    'max_limit': MAX_NUMBER_LIMIT
+                }
         
         return df, today_df
         
     except Exception as e:
-        st.error(f"❌ Sheet ချိတ်ဆက်မှု အမှားအယွင်းရှိနေပါသည်: {str(e)}")
+        st.error(f"❌ Sheet ချိတ်ဆက်မှု အမှားအယွင်းရှိနေပါသည်")
         debug_log(f"Error details: {str(e)}")
         return None, None
 
@@ -372,28 +326,14 @@ df, today_df = load_sheet_data()
 
 if df is None or today_df is None:
     st.warning("📋 ဒေတာမရှိသေးပါ / Setup မပြည့်စုံသေးပါ")
-    
-    with st.expander("🔧 Setup Instructions", expanded=True):
-        st.markdown("""
-        ### 📝 Setup လုပ်ရန်
-        
-        1. Sidebar မှာ **"Link ပြရန်"** ကိုနှိပ်ပါ
-        2. Google Sheet URL နှင့် Apps Script URL ထည့်ပါ
-        3. Save လုပ်ပါ
-        
-        **Sample Data Structure:**
-        | Date | Time | Customer | Number | Amount | Receipt |
-        |------|------|----------|--------|--------|---------|
-        | 2024-01-20 | 10:30 AM | ဉာဏ်လင်း | 12 | 1000 | R-2024-01-20-0001 |
-        """)
     st.stop()
 
 # =========================
-# Dashboard
+# Dashboard with Limits
 # =========================
 st.title(f"💰 2D Agent Pro - {user}")
 
-# Stats row
+# Stats row with limit info
 col1, col2, col3, col4 = st.columns(4)
 with col1:
     total_today = today_df['Amount'].sum()
@@ -402,18 +342,70 @@ with col2:
     total_transactions = len(today_df)
     st.metric("🔄 ဒီနေ့လုပ်ဆောင်ချက်", f"{total_transactions}")
 with col3:
-    avg_amount = total_today / total_transactions if total_transactions > 0 else 0
-    st.metric("📈 ပျမ်းမျှထိုးငွေ", f"{avg_amount:,.0f} ကျပ်")
+    if not today_df.empty:
+        # Find numbers at or near limit
+        numbers_near_limit = []
+        for num in today_df['Number'].unique():
+            total = today_df[today_df['Number'] == num]['Amount'].sum()
+            if total >= MAX_NUMBER_LIMIT * 0.8:  # 80% or more
+                numbers_near_limit.append(f"{num} ({total:,.0f})")
+        
+        if numbers_near_limit:
+            display_text = f"{len(numbers_near_limit)} ဂဏန်း"
+            st.metric("⚠️ Limit နီးကပ်ဂဏန်း", display_text, delta="သတိ")
+        else:
+            st.metric("✅ Limit အကုန်ဂဏန်း", "0")
 with col4:
     if not today_df.empty:
-        popular_num = today_df.groupby('Number')['Amount'].sum().idxmax()
-        popular_amount = today_df.groupby('Number')['Amount'].sum().max()
-        st.metric("🔥 လူကြိုက်အများဆုံး", f"{popular_num} ({popular_amount:,.0f})")
+        # Calculate how many numbers have reached limit
+        numbers_at_limit = 0
+        for num in today_df['Number'].unique():
+            total = today_df[today_df['Number'] == num]['Amount'].sum()
+            if total >= MAX_NUMBER_LIMIT:
+                numbers_at_limit += 1
+        
+        total_unique_numbers = len(today_df['Number'].unique())
+        st.metric("🔴 Limit ပြည့်ဂဏန်း", f"{numbers_at_limit}/{total_unique_numbers}")
+
+# Check specific number if requested
+if hasattr(st.session_state, 'checking_number'):
+    check_number = st.session_state.checking_number
+    limit_info = check_number_limit(check_number)
+    
+    if limit_info:
+        with st.container(border=True):
+            st.markdown(f"### 🔍 ဂဏန်း {check_number} စစ်ဆေးချက်")
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                current_total = limit_info.get('current_total', 0)
+                st.metric("💰 လက်ရှိစုစုပေါင်း", f"{current_total:,.0f} ကျပ်")
+            with col2:
+                remaining = limit_info.get('remaining', MAX_NUMBER_LIMIT)
+                st.metric("✅ ထပ်ထည့်နိုင်သောငွေ", f"{remaining:,.0f} ကျပ်")
+            with col3:
+                max_limit = limit_info.get('max_limit', MAX_NUMBER_LIMIT)
+                st.metric("🎯 အများဆုံးပမာဏ", f"{max_limit:,.0f} ကျပ်")
+            
+            # Progress bar
+            progress = min(current_total / max_limit, 1.0)
+            st.progress(progress)
+            st.caption(f"Limit ရဲ့ {progress*100:.1f}% ရောက်ရှိနေပါသည်")
+            
+            if current_total >= max_limit:
+                st.error(f"❌ ဂဏန်း {check_number} သည် Limit ပြည့်သွားပါပြီ")
+            elif remaining < 1000:
+                st.warning(f"⚠️ ဂဏန်း {check_number} အတွက် {remaining:,} ကျပ် သာကျန်ပါသည်")
+            else:
+                st.success(f"✅ ဂဏန်း {check_number} အတွက် {remaining:,} ကျပ် ကျန်ပါသည်")
+    
+    # Clear the checking state
+    st.session_state.pop('checking_number', None)
 
 st.divider()
 
 # =========================
-# New Entry
+# New Entry with Limit Check
 # =========================
 with st.expander("📝 စာရင်းအသစ်ထည့်ရန်", expanded=True):
     with st.form("new_entry", clear_on_submit=True, border=True):
@@ -423,33 +415,80 @@ with st.expander("📝 စာရင်းအသစ်ထည့်ရန်", exp
         with c1:
             name = st.text_input("👤 ထိုးသူအမည်", placeholder="ဉာဏ်လင်း")
         with c2:
-            number = st.text_input("🔢 ထိုးမည့်ဂဏန်း", placeholder="12", max_chars=2)
+            number_input = st.text_input("🔢 ထိုးမည့်ဂဏန်း", placeholder="12", max_chars=2, key="new_number")
         with c3:
-            amount = st.number_input("💰 ပိုက်ဆံပမာဏ", min_value=100, step=100, value=1000)
+            amount = st.number_input("💰 ပိုက်ဆံပမာဏ", min_value=100, step=100, value=1000, key="new_amount")
         
-        if number:
-            number = number.zfill(2)
-            used_amount = today_df[today_df["Number"] == number]["Amount"].sum()
-            remaining = NUMBER_LIMIT - used_amount
+        # Real-time limit check
+        if number_input:
+            number = number_input.zfill(2)
             
-            if remaining <= 0:
-                st.error(f"❌ ဂဏန်း {number} သည် Limit ပြည့်သွားပါပြီ")
-            elif amount > remaining:
-                st.warning(f"⚠️ ဂဏန်း {number} အတွက် {remaining:,} ကျပ် သာကျန်ပါသည်")
+            # Get current total for this number
+            current_total = 0
+            if number in st.session_state.number_limits_cache:
+                current_total = st.session_state.number_limits_cache[number]['current_total']
             else:
-                st.success(f"✅ ဂဏန်း {number} အတွက် {remaining:,.0f} ကျပ် ကျန်ပါသည်")
+                # Check from today's data
+                number_data = today_df[today_df["Number"] == number]
+                if not number_data.empty:
+                    current_total = number_data["Amount"].sum()
+                    st.session_state.number_limits_cache[number] = {
+                        'current_total': current_total,
+                        'remaining': MAX_NUMBER_LIMIT - current_total,
+                        'max_limit': MAX_NUMBER_LIMIT
+                    }
+            
+            remaining = MAX_NUMBER_LIMIT - current_total
+            new_total = current_total + amount
+            
+            # Display limit info
+            limit_col1, limit_col2, limit_col3 = st.columns(3)
+            with limit_col1:
+                st.metric("လက်ရှိစုစုပေါင်း", f"{current_total:,.0f} ကျပ်")
+            with limit_col2:
+                st.metric("ထပ်ထည့်နိုင်", f"{remaining:,.0f} ကျပ်")
+            with limit_col3:
+                st.metric("အများဆုံး", f"{MAX_NUMBER_LIMIT:,} ကျပ်")
+            
+            # Progress bar
+            progress = min(new_total / MAX_NUMBER_LIMIT, 1.0)
+            color = "red" if new_total > MAX_NUMBER_LIMIT else "orange" if progress > 0.8 else "green"
+            st.progress(progress)
+            
+            # Warning messages
+            if new_total > MAX_NUMBER_LIMIT:
+                st.error(f"❌ ဂဏန်း {number} သည် Limit {MAX_NUMBER_LIMIT:,} ကျပ် ကျော်သွားမည်")
+                st.error(f"ထပ်ထည့်နိုင်သောငွေ: {remaining:,} ကျပ်")
+            elif new_total == MAX_NUMBER_LIMIT:
+                st.warning(f"⚠️ ဂဏန်း {number} သည် Limit ပြည့်သွားမည်")
+            elif progress > 0.9:
+                st.warning(f"⚠️ ဂဏန်း {number} သည် Limit နီးကပ်နေပါသည်")
+            elif remaining < 5000:
+                st.info(f"ℹ️ ဂဏန်း {number} အတွက် {remaining:,} ကျပ် သာကျန်ပါသည်")
         
         submit = st.form_submit_button("💾 သိမ်းမည်", type="primary", use_container_width=True)
         
         if submit:
-            if not name or not number:
+            if not name or not number_input:
                 st.error("❌ ထိုးသူအမည်နှင့် ဂဏန်းထည့်ပါ")
             else:
-                number = number.zfill(2)
-                used_amount = today_df[today_df["Number"] == number]["Amount"].sum()
+                number = number_input.zfill(2)
                 
-                if used_amount + amount > NUMBER_LIMIT:
-                    st.error(f"❌ ဂဏန်း {number} သည် Limit {NUMBER_LIMIT:,} ကျပ် ကျော်နေပါပြီ")
+                # Final check before sending
+                current_total = 0
+                if number in st.session_state.number_limits_cache:
+                    current_total = st.session_state.number_limits_cache[number]['current_total']
+                else:
+                    number_data = today_df[today_df["Number"] == number]
+                    if not number_data.empty:
+                        current_total = number_data["Amount"].sum()
+                
+                new_total = current_total + amount
+                
+                if new_total > MAX_NUMBER_LIMIT:
+                    remaining = MAX_NUMBER_LIMIT - current_total
+                    st.error(f"❌ ဂဏန်း {number} သည် Limit {MAX_NUMBER_LIMIT:,} ကျပ် ကျော်နေပါပြီ")
+                    st.error(f"ထပ်ထည့်နိုင်သောငွေ: {remaining:,} ကျပ်")
                 else:
                     payload = {
                         "action": "insert",
@@ -471,12 +510,20 @@ with st.expander("📝 စာရင်းအသစ်ထည့်ရန်", exp
                             
                             if resp.status_code == 200:
                                 result = resp.json()
-                                st.success(f"✅ {result.get('status', 'သိမ်းပြီးပါပြီ')}")
-                                time.sleep(1)
-                                st.session_state.last_refresh = datetime.now()
-                                st.rerun()
+                                if result.get("status") == "limit_exceeded":
+                                    st.error(f"❌ {result.get('message', 'Limit ကျော်နေပါသည်')}")
+                                else:
+                                    st.success(f"✅ {result.get('message', 'သိမ်းပြီးပါပြီ')}")
+                                    time.sleep(1)
+                                    st.session_state.last_refresh = datetime.now()
+                                    st.session_state.number_limits_cache = {}
+                                    st.rerun()
                             else:
-                                st.error(f"❌ အမှားအယွင်း: {resp.status_code} - {resp.text}")
+                                result = resp.json() if resp.text else {}
+                                if result.get("status") == "limit_exceeded":
+                                    st.error(f"❌ {result.get('message', 'Limit ကျော်နေပါသည်')}")
+                                else:
+                                    st.error(f"❌ အမှားအယွင်း: {resp.status_code} - {resp.text}")
                     except requests.exceptions.Timeout:
                         st.error("⏱️ Request timeout. Script က response မပြန်ပါ")
                     except requests.exceptions.ConnectionError:
@@ -518,7 +565,7 @@ if win_number and win_number.strip():
 st.divider()
 
 # =========================
-# Edit Records
+# Edit Records with Limit Check
 # =========================
 st.subheader("✏️ ဒီနေ့စာရင်းများ ပြန်ပြင်ရန်")
 
@@ -536,17 +583,25 @@ else:
                 with col3:
                     am = st.number_input("💰 ပမာဏ", value=int(r.Amount), min_value=100, step=100, key=f"amt_{i}")
                 
+                # Check limit before update
+                nu = nu.zfill(2) if nu else r.Number
+                
+                if nu != r.Number or am != r.Amount:
+                    # Calculate current totals
+                    current_total_excluding = today_df[
+                        (today_df["Number"] == nu) & 
+                        (today_df.index != i)
+                    ]["Amount"].sum()
+                    
+                    new_total = current_total_excluding + am
+                    
+                    if new_total > MAX_NUMBER_LIMIT:
+                        remaining = MAX_NUMBER_LIMIT - current_total_excluding
+                        st.error(f"❌ ဂဏန်း {nu} အတွက် {remaining:,} ကျပ် သာကျန်ပါသည်")
+                
                 if st.form_submit_button("🔄 ပြင်မည်", use_container_width=True):
                     nu = nu.zfill(2)
-                    
-                    if nu != r.Number:
-                        used_amount = today_df[today_df["Number"] == nu]["Amount"].sum()
-                        if used_amount + am > NUMBER_LIMIT:
-                            st.error(f"❌ ဂဏန်း {nu} သည် Limit ကျော်သွားမည်")
-                        else:
-                            update_record(r.sheet_row, en, nu, am)
-                    else:
-                        update_record(r.sheet_row, en, nu, am)
+                    update_record(r.sheet_row, en, nu, am)
 
 def update_record(row, customer, number, amount):
     """Update a record in the Google Sheet"""
@@ -566,27 +621,53 @@ def update_record(row, customer, number, amount):
             debug_log(f"Update response: {resp.status_code} - {resp.text}")
             
             if resp.status_code == 200:
-                st.success("✅ ပြင်ပြီးပါပြီ")
-                time.sleep(1)
-                st.session_state.last_refresh = datetime.now()
-                st.rerun()
+                result = resp.json()
+                if result.get("status") == "limit_exceeded":
+                    st.error(f"❌ {result.get('message', 'Limit ကျော်နေပါသည်')}")
+                else:
+                    st.success("✅ ပြင်ပြီးပါပြီ")
+                    time.sleep(1)
+                    st.session_state.last_refresh = datetime.now()
+                    st.session_state.number_limits_cache = {}
+                    st.rerun()
             else:
-                st.error(f"❌ Update failed: {resp.status_code} - {resp.text}")
+                result = resp.json() if resp.text else {}
+                if result.get("status") == "limit_exceeded":
+                    st.error(f"❌ {result.get('message', 'Limit ကျော်နေပါသည်')}")
+                else:
+                    st.error(f"❌ Update failed: {resp.status_code} - {resp.text}")
     except Exception as e:
         st.error(f"❌ Update error: {str(e)}")
 
 st.divider()
 
 # =========================
-# Table & Search
+# Table with Limit Indicators
 # =========================
-st.subheader("📋 ဒီနေ့စာရင်းဇယား")
+st.subheader("📋 ဒီနေ့စာရင်းဇယား (Limit ဖော်ပြချက်နှင့်)")
+
+# Add limit status to dataframe
+def get_limit_status(number, amount):
+    total = today_df[today_df["Number"] == number]["Amount"].sum()
+    if total >= MAX_NUMBER_LIMIT:
+        return "🔴 Limit ပြည့်"
+    elif total >= MAX_NUMBER_LIMIT * 0.9:
+        return "🟡 Limit နီးပြီ"
+    elif total >= MAX_NUMBER_LIMIT * 0.7:
+        return "🟠 Limit 70%"
+    else:
+        return "🟢 ကျန်ရှိ"
+
+if not today_df.empty:
+    today_df["Limit_Status"] = today_df.apply(
+        lambda row: get_limit_status(row["Number"], row["Amount"]), axis=1
+    )
 
 search_col1, search_col2 = st.columns([3, 1])
 with search_col1:
     search = st.text_input("🔍 နာမည်ဖြင့်ရှာရန်", placeholder="ထိုးသူအမည်ရိုက်ထည့်ပါ...")
 with search_col2:
-    sort_by = st.selectbox("အစဉ်လိုက်စီရန်", ["Time", "Amount", "Number", "Customer"])
+    sort_by = st.selectbox("အစဉ်လိုက်စီရန်", ["Time", "Amount", "Number", "Limit_Status"])
 
 view_df = today_df.drop(columns=['sheet_row']).copy()
 
@@ -599,8 +680,32 @@ elif sort_by == "Number":
     view_df = view_df.sort_values(by="Number")
 elif sort_by == "Customer":
     view_df = view_df.sort_values(by="Customer")
+elif sort_by == "Limit_Status":
+    view_df = view_df.sort_values(by="Limit_Status", ascending=False)
 else:
     view_df = view_df.sort_values(by="Time", ascending=False)
+
+# Display limit summary
+if not today_df.empty:
+    numbers_at_limit = []
+    numbers_near_limit = []
+    
+    for num in today_df['Number'].unique():
+        total = today_df[today_df["Number"] == num]["Amount"].sum()
+        if total >= MAX_NUMBER_LIMIT:
+            numbers_at_limit.append(f"{num} ({total:,.0f})")
+        elif total >= MAX_NUMBER_LIMIT * 0.8:
+            numbers_near_limit.append(f"{num} ({total:,.0f})")
+    
+    if numbers_at_limit or numbers_near_limit:
+        with st.container(border=True):
+            st.markdown("### ⚠️ Limit သတိပေးချက်များ")
+            
+            if numbers_at_limit:
+                st.error(f"**🔴 Limit ပြည့်သွားသောဂဏန်းများ:** {', '.join(numbers_at_limit)}")
+            
+            if numbers_near_limit:
+                st.warning(f"**🟡 Limit နီးကပ်နေသောဂဏန်းများ:** {', '.join(numbers_near_limit)}")
 
 st.caption(f"📊 စုစုပေါင်း {len(view_df)} ခု | စုစုပေါင်းငွေ: {view_df['Amount'].sum():,.0f} ကျပ်")
 
@@ -616,7 +721,8 @@ if not view_df.empty:
             "Customer": st.column_config.TextColumn("ထိုးသူ"),
             "Number": st.column_config.TextColumn("ဂဏန်း"),
             "Amount": st.column_config.TextColumn("ငွေပမာဏ"),
-            "Receipt": st.column_config.TextColumn("ရက်စဘွယ်")
+            "Receipt": st.column_config.TextColumn("ရက်စဘွယ်"),
+            "Limit_Status": st.column_config.TextColumn("Limit အခြေအနေ")
         },
         hide_index=True,
         use_container_width=True
@@ -641,7 +747,7 @@ with col1:
         
         if not view_df.empty:
             if export_format == "CSV":
-                csv_data = view_df.to_csv(index=False).encode("utf-8-sig")
+                csv_data = view_df.drop(columns=['Limit_Status']).to_csv(index=False).encode("utf-8-sig")
                 st.download_button(
                     "💾 CSV ဒေါင်းလုဒ်",
                     csv_data,
@@ -650,7 +756,7 @@ with col1:
                     use_container_width=True
                 )
             else:
-                excel_data = view_df.to_excel(index=False, engine='openpyxl')
+                excel_data = view_df.drop(columns=['Limit_Status']).to_excel(index=False, engine='openpyxl')
                 st.download_button(
                     "💾 Excel ဒေါင်းလုဒ်",
                     excel_data,
@@ -693,11 +799,12 @@ with col2:
                     
                     if response.status_code == 200:
                         result = response.json()
-                        st.success(f"✅ {result.get('status', 'အောင်မြင်စွာဖျက်ပြီးပါပြီ')}")
+                        st.success(f"✅ {result.get('message', 'အောင်မြင်စွာဖျက်ပြီးပါပြီ')}")
                         
                         st.balloons()
                         time.sleep(2)
                         st.session_state.last_refresh = datetime.now()
+                        st.session_state.number_limits_cache = {}
                         st.rerun()
                     else:
                         st.error(f"❌ Error {response.status_code}: {response.text}")
@@ -710,30 +817,6 @@ with col2:
                     st.error(f"❌ အမှားအယွင်း: {str(e)}")
 
 # =========================
-# Debug Panel
-# =========================
-if st.session_state.debug_mode:
-    with st.expander("🐛 Debug Information", expanded=False):
-        st.subheader("System Information")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Current User", user)
-            st.metric("Number Limit", f"{NUMBER_LIMIT:,}")
-        with col2:
-            st.metric("Sheet URL", sheet[:50] + "..." if len(sheet) > 50 else sheet)
-            st.metric("Script URL", script[:50] + "..." if len(script) > 50 else script)
-        
-        st.subheader("Data Preview")
-        tab1, tab2 = st.tabs(["Today's Data", "All Data"])
-        
-        with tab1:
-            st.dataframe(today_df, use_container_width=True)
-        
-        with tab2:
-            st.dataframe(df, use_container_width=True)
-
-# =========================
 # Footer
 # =========================
 st.divider()
@@ -743,7 +826,7 @@ with footer_col1:
     st.caption(f"🕐 Last update: {datetime.now(MM_TZ).strftime('%I:%M:%S %p')}")
 with footer_col2:
     st.caption(f"📅 Date: {TODAY}")
-    st.caption(f"🎯 Limit: {NUMBER_LIMIT:,} ကျပ်")
+    st.caption(f"🎯 Number Limit: {MAX_NUMBER_LIMIT:,} ကျပ်")
 with footer_col3:
-    st.caption("💻 2D Agent Pro v2.0")
+    st.caption("💻 2D Agent Pro v3.0")
     st.caption(f"💰 Za Rate: {ZA_RATE}")
