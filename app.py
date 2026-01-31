@@ -4,159 +4,162 @@ from datetime import datetime, timedelta, timezone
 import requests, time, re
 
 # ------------------ PAGE SETUP ------------------
-st.set_page_config("2D Agent Pro", "💰", layout="wide")
+st.set_page_config(page_title="2D Agent Pro", layout="wide", page_icon="💰")
 
 MM_TZ = timezone(timedelta(hours=6, minutes=30))
 TODAY = datetime.now(MM_TZ).strftime("%Y-%m-%d")
 
 # ------------------ LINK STORAGE ------------------
 @st.cache_resource
-def get_storage():
-    return {
-        "admin": {"sheet": "", "script": ""},
-        "thiri": {"sheet": "", "script": ""}
-    }
+def get_user_storage():
+    return {"admin": {"sheet": "", "script": ""}}
 
-db = get_storage()
+user_db = get_user_storage()
 
 # ------------------ LOGIN ------------------
-USERS = {"admin": "123456", "thiri": "163202"}
+USERS = {"admin": "123456"}
 
-if "login" not in st.session_state:
-    st.session_state.login = False
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
 
-if not st.session_state.login:
-    st.title("🔐 Agent Login")
+if not st.session_state["logged_in"]:
+    st.title("🔐 Login")
     u = st.text_input("Username")
     p = st.text_input("Password", type="password")
     if st.button("Login"):
         if u in USERS and USERS[u] == p:
-            st.session_state.login = True
-            st.session_state.user = u
+            st.session_state["logged_in"] = True
+            st.session_state["user"] = u
             st.rerun()
         else:
-            st.error("❌ Login မအောင်မြင်ပါ")
+            st.error("❌ Username or Password wrong")
     st.stop()
 
-user = st.session_state.user
+curr_user = st.session_state["user"]
 
 # ------------------ SIDEBAR ------------------
-st.sidebar.title(f"👤 {user}")
+st.sidebar.title(f"👋 {curr_user}")
 
-sheet = st.sidebar.text_input("Google Sheet URL", value=db[user]["sheet"])
-script = st.sidebar.text_input("Apps Script URL", value=db[user]["script"])
+in_sheet = st.sidebar.text_input("Google Sheet URL", value=user_db[curr_user]["sheet"])
+in_script = st.sidebar.text_input("Apps Script URL", value=user_db[curr_user]["script"])
 
-if st.sidebar.button("💾 Save"):
-    db[user]["sheet"] = sheet
-    db[user]["script"] = script
-    st.success("Saved")
+if st.sidebar.button("💾 Save Links"):
+    user_db[curr_user]["sheet"] = in_sheet
+    user_db[curr_user]["script"] = in_script
+    st.success("Links Saved!")
     time.sleep(1)
     st.rerun()
 
-st.sidebar.divider()
-win_num = st.sidebar.text_input("🎯 ပေါက်ဂဏန်း", max_chars=2)
-za = st.sidebar.number_input("💰 ဇ (အဆ)", value=80)
+sheet_url = user_db[curr_user]["sheet"]
+script_url = user_db[curr_user]["script"]
 
-if st.sidebar.button("Logout"):
-    st.session_state.login = False
+st.sidebar.divider()
+win_num = st.sidebar.text_input("🎰 Winning Number", max_chars=2)
+za_rate = st.sidebar.number_input("💰 Rate (Za)", value=80)
+
+if st.sidebar.button("🚪 Logout"):
+    st.session_state["logged_in"] = False
     st.rerun()
 
-if not sheet or not script:
-    st.warning("Link မပြည့်စုံပါ")
+if not sheet_url or not script_url:
+    st.warning("🔗 Enter both Sheet URL and Script URL")
     st.stop()
 
 # ------------------ LOAD DATA ------------------
-def csv_url(url):
-    m = re.search(r"/d/([^/]+)", url)
+def get_csv_export(url):
+    m = re.search(r"/d/([^/]*)", url)
     return f"https://docs.google.com/spreadsheets/d/{m.group(1)}/export?format=csv"
 
 try:
-    df = pd.read_csv(csv_url(sheet) + f"&t={int(time.time())}")
-except:
-    st.error("Sheet မဖတ်နိုင်ပါ")
+    csv_link = get_csv_export(sheet_url)
+    df = pd.read_csv(csv_link + f"&t={int(time.time())}", header=0)
+    df.columns = df.columns.str.strip()
+    
+    required_cols = ["Date","Time","Customer","Number","Amount"]
+    for c in required_cols:
+        if c not in df.columns:
+            df[c] = ""
+    
+    df["Number"] = df["Number"].astype(str).str.zfill(2)
+    df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
+        
+except Exception as e:
+    st.error("❌ Cannot load data. Check Sheet URL.")
     st.stop()
-
-df.fillna("", inplace=True)
-df["Number"] = df["Number"].astype(str).str.zfill(2)
-df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0)
 
 today_df = df[df["Date"] == TODAY]
 
 # ------------------ DASHBOARD ------------------
-st.title("💰 2D Agent Dashboard")
-st.metric("📊 ဒီနေ့စုစုပေါင်း", f"{today_df['Amount'].sum():,.0f} Ks")
+st.title(f"💰 {curr_user}'s 2D Dashboard")
+total_in = today_df["Amount"].sum() if not today_df.empty else 0
+st.metric("📊 Total (Today)", f"{total_in:,.0f} Ks")
 
 # ------------------ NEW ENTRY ------------------
-with st.expander("➕ စာရင်းအသစ်"):
-    with st.form("new"):
-        c1, c2, c3 = st.columns(3)
-        name = c1.text_input("ထိုးသူအမည်")
-        num = c2.text_input("ဂဏန်း", max_chars=2)
-        amt = c3.number_input("ပမာဏ", min_value=100, step=100)
-        if st.form_submit_button("သိမ်း"):
-            if name and num:
-                # DUPLICATE CHECK
+with st.expander("📝 New Entry"):
+    with st.form("entry_form", clear_on_submit=True):
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            f_name = st.text_input("Name")
+        with col2:
+            f_num = st.text_input("Number", max_chars=2)
+        with col3:
+            f_amt = st.number_input("Amount", min_value=100, step=100)
+            
+        if st.form_submit_button("✅ Save"):
+            if not f_name or not f_num:
+                st.error("❌ Name and Number required")
+            else:
                 dup = today_df[
-                    (today_df["Customer"] == name) &
-                    (today_df["Number"] == num.zfill(2))
+                    (today_df["Customer"].str.lower() == f_name.lower()) &
+                    (today_df["Number"] == f_num.zfill(2))
                 ]
                 if not dup.empty:
-                    st.error("⚠️ ဒီနာမည် ဒီဂဏန်း ရှိပြီးသား")
+                    st.warning("⚠️ Duplicate found! Entry skipped.")
                 else:
                     payload = {
                         "action": "insert",
                         "Date": TODAY,
                         "Time": datetime.now(MM_TZ).strftime("%I:%M %p"),
-                        "Customer": name,
-                        "Number": num.zfill(2),
-                        "Amount": int(amt)
+                        "Customer": f_name,
+                        "Number": f_num.zfill(2),
+                        "Amount": int(f_amt)
                     }
-                    requests.post(script, json=payload)
-                    st.success("✔️ သိမ်းပြီး")
-                    time.sleep(1)
-                    st.rerun()
+                    res = requests.post(script_url, json=payload)
+                    if res.status_code == 200:
+                        st.success("✔️ Saved!")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.error("❌ Save failed")
 
 # ------------------ WIN CHECK ------------------
 if win_num:
-    win = today_df[today_df["Number"] == win_num.zfill(2)]
-    if not win.empty:
-        win["လျော်ကြေး"] = win["Amount"] * za
-        st.success("🎉 ပေါက်သူများ")
-        st.table(win[["Customer", "Number", "Amount", "လျော်ကြေး"]])
+    winners = today_df[today_df["Number"] == win_num.zfill(2)]
+    if not winners.empty:
+        winners["Payout"] = winners["Amount"] * za_rate
+        st.success(f"🎉 Winners for {win_num.zfill(2)}")
+        st.table(winners[["Customer","Number","Amount","Payout"]])
 
-# ------------------ EDIT ------------------
-st.subheader("✏️ ဒီနေ့စာရင်းပြင်ရန်")
-for i, r in today_df.iterrows():
-    with st.expander(f"{r.Customer} | {r.Number} | {r.Amount}"):
-        with st.form(f"e{i}"):
-            en = st.text_input("နာမည်", r.Customer)
-            nu = st.text_input("ဂဏန်း", r.Number)
-            am = st.number_input("ပမာဏ", value=int(r.Amount))
-            if st.form_submit_button("Update"):
-                requests.post(script, json={
+# ------------------ EDIT ENTRIES ------------------
+st.divider()
+st.subheader("✏️ Edit Today Entries")
+
+for i, row in today_df.iterrows():
+    row_idx = int(i) + 2
+    with st.expander(f"{row['Customer']} | {row['Number']} | {row['Amount']}"):
+        with st.form(f"edit_{i}"):
+            en = st.text_input("Name", row["Customer"])
+            nu = st.text_input("Number", row["Number"], max_chars=2)
+            am = st.number_input("Amount", value=int(row["Amount"]))
+            if st.form_submit_button("💾 Update"):
+                payload = {
                     "action": "update",
-                    "row": i + 2,
+                    "row": row_idx,
                     "Customer": en,
                     "Number": nu.zfill(2),
                     "Amount": int(am)
-                })
-                st.success("Updated")
-                time.sleep(1)
-                st.rerun()
-
-# ------------------ TABLE ------------------
-st.subheader("📋 ဒီနေ့စာရင်း")
-search = st.text_input("🔍 နာမည်စစ်")
-view = today_df
-if search:
-    view = view[view["Customer"].str.contains(search, case=False)]
-
-st.dataframe(view, use_container_width=True, hide_index=True)
-
-# ------------------ CLEAR TODAY ------------------
-st.divider()
-if st.button("🔥 ဒီနေ့စာရင်း အကုန်ဖျက်"):
-    requests.post(script, json={"action": "clear_today", "date": TODAY})
-    st.warning("ဒီနေ့စာရင်း ဖျက်ပြီး")
-    time.sleep(1)
-    st.rerun()
+                }
+                res = requests.post(script_url, json=payload)
+                if res.status_code == 200:
+                    st.success("Updated!")
+                    time.s
