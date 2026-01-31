@@ -1,50 +1,227 @@
 import streamlit as st
 import pandas as pd
 import hashlib
+import time
+from datetime import datetime, timedelta
+import pytz
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+import json
 import re
-from datetime import datetime
+import os
 
-# ==================== Session State Initialization ====================
-if 'logged_in' not in st.session_state:
-    st.session_state.logged_in = False
-if 'user_role' not in st.session_state:
-    st.session_state.user_role = ''
-if 'current_user' not in st.session_state:
-    st.session_state.current_user = ''
-if 'users_db' not in st.session_state:
-    # User database with hashed passwords
+# ==================== CONFIGURATION ====================
+MYANMAR_TZ = pytz.timezone('Asia/Yangon')
+PRICE_PER_NUMBER = 50000
+
+# ==================== SESSION STATE INITIALIZATION ====================
+def init_session_state():
+    # Authentication states
+    if 'logged_in' not in st.session_state:
+        st.session_state.logged_in = False
+    if 'user_role' not in st.session_state:
+        st.session_state.user_role = ''
+    if 'current_user' not in st.session_state:
+        st.session_state.current_user = ''
+    
+    # 2D App states
+    if 'sheet_url' not in st.session_state:
+        st.session_state.sheet_url = ''
+    if 'user_configs' not in st.session_state:
+        st.session_state.user_configs = {}
+    if 'today_entries' not in st.session_state:
+        st.session_state.today_entries = {}
+    if 'google_sheets' not in st.session_state:
+        st.session_state.google_sheets = {}
+    if 'last_reset_date' not in st.session_state:
+        st.session_state.last_reset_date = datetime.now(MYANMAR_TZ).strftime('%Y-%m-%d')
+    if 'hidden_sections' not in st.session_state:
+        st.session_state.hidden_sections = {}
+    
+    # User Management states (from previous panel)
+    if 'users_db' not in st.session_state:
+        init_users_database()
+    if 'number_limits_cache' not in st.session_state:
+        st.session_state.number_limits_cache = {}
+    if 'activity_log' not in st.session_state:
+        st.session_state.activity_log = []
+    if 'current_page' not in st.session_state:
+        st.session_state.current_page = '🏠 ပင်မစာမျက်နှာ'
+    
+    # Initialize user-specific data
+    if st.session_state.current_user:
+        init_user_data()
+
+def init_users_database():
+    """Initialize user database with both admin and agent roles"""
     st.session_state.users_db = {
         'admin': {
             'password': hashlib.sha256('admin123'.encode()).hexdigest(),
             'role': 'admin',
             'name': 'စီမံခန့်ခွဲသူ',
             'email': 'admin@company.com',
-            'created_at': '2024-01-01',
-            'last_login': '2024-01-15'
+            'created_at': datetime.now().strftime('%Y-%m-%d'),
+            'last_login': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        },
+        'agent1': {
+            'password': hashlib.sha256('agent123'.encode()).hexdigest(),
+            'role': 'agent',
+            'name': 'အေဂျင့်တစ်',
+            'email': 'agent1@company.com',
+            'created_at': datetime.now().strftime('%Y-%m-%d'),
+            'last_login': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         },
         'user1': {
             'password': hashlib.sha256('user123'.encode()).hexdigest(),
             'role': 'user',
             'name': 'ဦးကျော်ကျော်',
-            'email': 'kyawkyaw@email.com',
-            'created_at': '2024-01-05',
-            'last_login': '2024-01-14'
-        },
-        'user2': {
-            'password': hashlib.sha256('user456'.encode()).hexdigest(),
-            'role': 'user',
-            'name': 'ဒေါ်မြမြ',
-            'email': 'myamya@email.com',
-            'created_at': '2024-01-10',
-            'last_login': '2024-01-13'
+            'email': 'user1@company.com',
+            'created_at': datetime.now().strftime('%Y-%m-%d'),
+            'last_login': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         }
     }
-if 'number_limits_cache' not in st.session_state:
-    st.session_state.number_limits_cache = {}
-if 'activity_log' not in st.session_state:
-    st.session_state.activity_log = []
 
-# ==================== Helper Functions ====================
+def init_user_data():
+    """Initialize user-specific data"""
+    if st.session_state.current_user not in st.session_state.today_entries:
+        st.session_state.today_entries[st.session_state.current_user] = []
+    if st.session_state.current_user not in st.session_state.user_configs:
+        st.session_state.user_configs[st.session_state.current_user] = {
+            'sheet_url': '',
+            'script_url': ''
+        }
+
+# ==================== 2D APP HELPER FUNCTIONS ====================
+def get_myanmar_time():
+    """မြန်မာစံတော်ချိန်ရယူခြင်း"""
+    return datetime.now(MYANMAR_TZ)
+
+def format_myanmar_time(dt=None):
+    """မြန်မာစံတော်ချိန်ဖော်ပြခြင်း"""
+    if dt is None:
+        dt = get_myanmar_time()
+    return dt.strftime('%Y-%m-%d %H:%M:%S')
+
+def get_today_date():
+    """ယနေ့ရက်စွဲရယူခြင်း"""
+    return get_myanmar_time().strftime('%Y-%m-%d')
+
+def validate_number(number_str):
+    """ဂဏန်းစစ်ဆေးခြင်း"""
+    if not re.match(r'^\d{2,3}$', number_str):
+        return False, "ဂဏန်းသည် ၂ လုံး သို့မဟုတ် ၃ လုံးဖြစ်ရမည်"
+    
+    if len(number_str) == 2:
+        if not (0 <= int(number_str) <= 99):
+            return False, "2D ဂဏန်းသည် 00 မှ 99 အတွင်းဖြစ်ရမည်"
+    elif len(number_str) == 3:
+        if not (0 <= int(number_str) <= 999):
+            return False, "3D ဂဏန်းသည် 000 မှ 999 အတွင်းဖြစ်ရမည်"
+    
+    return True, ""
+
+def validate_name(name):
+    """နာမည်စစ်ဆေးခြင်း"""
+    if not name or len(name.strip()) < 2:
+        return False, "နာမည်အနည်းဆုံး ၂ လုံးထည့်ပါ"
+    return True, ""
+
+def calculate_amount(number_str, quantity):
+    """စုစုပေါင်းပမာဏတွက်ချက်ခြင်း"""
+    return PRICE_PER_NUMBER * quantity
+
+def connect_to_google_sheets(sheet_url, credentials_json=None):
+    """Google Sheets နှင့်ချိတ်ဆက်ခြင်း"""
+    try:
+        if not sheet_url:
+            return None, "Sheet URL ထည့်ပါ"
+        
+        if sheet_url in st.session_state.google_sheets:
+            return st.session_state.google_sheets[sheet_url], "ချိတ်ဆက်ပြီးသား"
+        
+        scope = ["https://spreadsheets.google.com/feeds", 
+                "https://www.googleapis.com/auth/drive"]
+        
+        if credentials_json:
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(
+                credentials_json, scope)
+        else:
+            try:
+                creds_dict = json.loads(st.secrets["google_credentials"])
+                creds = ServiceAccountCredentials.from_json_keyfile_dict(
+                    creds_dict, scope)
+            except:
+                class MockSheet:
+                    def worksheet(self, title):
+                        class MockWorksheet:
+                            def append_row(self, row):
+                                print(f"Mock append: {row}")
+                                return True
+                        return MockWorksheet()
+                
+                mock_sheet = MockSheet()
+                st.session_state.google_sheets[sheet_url] = mock_sheet
+                return mock_sheet, "Demo mode"
+        
+        client = gspread.authorize(creds)
+        sheet = client.open_by_url(sheet_url)
+        st.session_state.google_sheets[sheet_url] = sheet
+        return sheet, "ချိတ်ဆက်ပြီးပါပြီ"
+    except Exception as e:
+        return None, f"ချိတ်ဆက်မှုမအောင်မြင်ပါ: {str(e)}"
+
+def save_to_google_sheets(entry_data, sheet_url, script_url=""):
+    """Google Sheets သို့သိမ်းဆည်းခြင်း"""
+    try:
+        sheet, message = connect_to_google_sheets(sheet_url)
+        if not sheet:
+            return False, message
+        
+        today = get_today_date()
+        try:
+            worksheet = sheet.worksheet(today)
+        except:
+            worksheet = sheet.add_worksheet(title=today, rows="1000", cols="10")
+            headers = ["အချိန်", "ထိုးသူအမည်", "ထိုးမည့်ဂဏန်း", "အရေအတွက်", 
+                      "ပမာဏ", "ပေါက်ဂဏန်း", "အခြေအနေ", "မှတ်ချက်"]
+            worksheet.append_row(headers)
+        
+        row = [
+            entry_data['time'],
+            entry_data['name'],
+            entry_data['number'],
+            entry_data['quantity'],
+            entry_data['amount'],
+            entry_data.get('winning_number', ''),
+            entry_data.get('status', 'စောင့်ဆိုင်းနေ'),
+            entry_data.get('note', '')
+        ]
+        
+        worksheet.append_row(row)
+        
+        if script_url:
+            try:
+                import requests
+                requests.post(script_url, json=entry_data, timeout=5)
+            except:
+                pass
+        
+        return True, "Google Sheets သို့သိမ်းဆည်းပြီးပါပြီ"
+    except Exception as e:
+        return False, f"သိမ်းဆည်းမှုမအောင်မြင်ပါ: {str(e)}"
+
+def check_daily_reset():
+    """နေ့စဉ်ဒေတာပြန်လည်စတင်ခြင်းစစ်ဆေးခြင်း"""
+    today = get_today_date()
+    
+    if st.session_state.last_reset_date != today:
+        for user in st.session_state.today_entries:
+            st.session_state.today_entries[user] = []
+        st.session_state.hidden_sections = {}
+        st.session_state.last_reset_date = today
+        st.rerun()
+
+# ==================== USER MANAGEMENT FUNCTIONS (From Panel) ====================
 def log_activity(action, details=""):
     """လုပ်ဆောင်ချက်မှတ်တမ်းထားရှိခြင်း"""
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -56,20 +233,18 @@ def log_activity(action, details=""):
         'details': details
     })
 
-def authenticate(username, password):
+def authenticate_user(username, password):
     """အသုံးပြုသူအတည်ပြုခြင်း"""
     if username in st.session_state.users_db:
         hashed_password = hashlib.sha256(password.encode()).hexdigest()
         if st.session_state.users_db[username]['password'] == hashed_password:
-            # Update last login
             st.session_state.users_db[username]['last_login'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             log_activity("Login", f"User: {username}")
             return True, st.session_state.users_db[username]['role']
     return False, None
 
-def add_user(username, password, role, name, email=""):
+def add_new_user(username, password, role, name, email=""):
     """အသုံးပြုသူအသစ်ထည့်ခြင်း"""
-    # Validation
     if not username or not password or not role or not name:
         return False, "လိုအပ်သောအချက်အလက်များကိုဖြည့်စွက်ပါ။"
     
@@ -85,7 +260,6 @@ def add_user(username, password, role, name, email=""):
     if username in st.session_state.users_db:
         return False, "အသုံးပြုသူအမည်ရှိပြီးသားဖြစ်နေပါသည်။"
     
-    # Add user
     hashed_password = hashlib.sha256(password.encode()).hexdigest()
     st.session_state.users_db[username] = {
         'password': hashed_password,
@@ -99,7 +273,7 @@ def add_user(username, password, role, name, email=""):
     log_activity("Add User", f"New user: {username} ({role})")
     return True, f"အကောင့် '{username}' အောင်မြင်စွာထည့်သွင်းပြီးပါပြီ။"
 
-def update_user(username, **kwargs):
+def update_user_info(username, **kwargs):
     """အသုံးပြုသူအချက်အလက်ပြင်ဆင်ခြင်း"""
     if username in st.session_state.users_db:
         for key, value in kwargs.items():
@@ -112,7 +286,7 @@ def update_user(username, **kwargs):
         return True, "အချက်အလက်ပြင်ဆင်ပြီးပါပြီ။"
     return False, "အသုံးပြုသူမတွေ့ပါ။"
 
-def delete_user(username):
+def delete_user_account(username):
     """အသုံးပြုသူဖျက်ခြင်း"""
     if username in st.session_state.users_db:
         if username == st.session_state.current_user:
@@ -123,216 +297,156 @@ def delete_user(username):
         return True, f"အကောင့် '{username}' ဖျက်ပြီးပါပြီ။"
     return False, "အသုံးပြုသူမတွေ့ပါ။"
 
-def logout():
-    """ထွက်ခွာခြင်း"""
-    log_activity("Logout", f"User: {st.session_state.current_user}")
-    st.session_state.logged_in = False
-    st.session_state.user_role = ''
-    st.session_state.current_user = ''
-
-# ==================== Page Configuration ====================
-st.set_page_config(
-    page_title="အကောင့်စီမံခန့်ခွဲမှုစနစ်",
-    page_icon="🔐",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# ==================== Custom CSS ====================
-st.markdown("""
-<style>
-/* Main styles */
-.main-header {
-    font-size: 2.5rem;
-    color: #1E3A8A;
-    text-align: center;
-    margin-bottom: 2rem;
-    padding-bottom: 1rem;
-    border-bottom: 3px solid #3B82F6;
-}
-.sub-header {
-    font-size: 1.8rem;
-    color: #1E40AF;
-    margin-bottom: 1.5rem;
-    padding-left: 10px;
-    border-left: 5px solid #3B82F6;
-}
-.section-header {
-    font-size: 1.4rem;
-    color: #374151;
-    margin: 1.5rem 0 1rem 0;
-}
-
-/* Box styles */
-.info-box {
-    background-color: #F0F9FF;
-    padding: 1.2rem;
-    border-radius: 10px;
-    border: 1px solid #BFDBFE;
-    margin: 1rem 0;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-}
-.success-box {
-    background-color: #D1FAE5;
-    padding: 1.2rem;
-    border-radius: 10px;
-    border: 1px solid #A7F3D0;
-    margin: 1rem 0;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-}
-.warning-box {
-    background-color: #FEF3C7;
-    padding: 1.2rem;
-    border-radius: 10px;
-    border: 1px solid #FDE68A;
-    margin: 1rem 0;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-}
-.error-box {
-    background-color: #FEE2E2;
-    padding: 1.2rem;
-    border-radius: 10px;
-    border: 1px solid #FECACA;
-    margin: 1rem 0;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-}
-
-/* Button styles */
-.stButton > button {
-    transition: all 0.3s ease;
-    border-radius: 8px;
-}
-.stButton > button:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-}
-
-/* Form styles */
-.stTextInput > div > div > input {
-    border-radius: 8px;
-}
-.stSelectbox > div > div > select {
-    border-radius: 8px;
-}
-
-/* Table styles */
-.dataframe {
-    border-radius: 10px;
-    overflow: hidden;
-}
-.dataframe th {
-    background-color: #3B82F6 !important;
-    color: white !important;
-}
-
-/* Sidebar styles */
-[data-testid="stSidebar"] {
-    background-color: #F8FAFC;
-}
-[data-testid="stSidebar"] .sidebar-content {
-    padding: 2rem 1rem;
-}
-
-/* Card styles */
-.user-card {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    padding: 1.5rem;
-    border-radius: 15px;
-    margin: 1rem 0;
-    box-shadow: 0 10px 20px rgba(0,0,0,0.1);
-}
-
-/* Responsive design */
-@media (max-width: 768px) {
-    .main-header {
-        font-size: 2rem;
-    }
-}
-</style>
-""", unsafe_allow_html=True)
-
-# ==================== Main Application ====================
+# ==================== MAIN APP ====================
 def main():
+    # Initialize session state
+    init_session_state()
+    
+    # Check daily reset for 2D app
+    check_daily_reset()
+    
+    # Set page config
+    st.set_page_config(
+        page_title="2D စနစ် & အကောင့်မန်နေဂျာ",
+        page_icon="🎰",
+        layout="wide",
+        initial_sidebar_state="expanded"
+    )
+    
+    # Custom CSS
+    st.markdown("""
+    <style>
+    .main-title {
+        font-size: 2.5rem;
+        color: #1E3A8A;
+        text-align: center;
+        margin-bottom: 1rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 3px solid #3B82F6;
+    }
+    .sub-title {
+        font-size: 1.8rem;
+        color: #1E40AF;
+        margin-bottom: 1rem;
+    }
+    .info-box {
+        background-color: #F0F9FF;
+        padding: 1rem;
+        border-radius: 10px;
+        border: 1px solid #BFDBFE;
+        margin: 1rem 0;
+    }
+    .warning-box {
+        background-color: #FEF3C7;
+        padding: 1rem;
+        border-radius: 10px;
+        border: 1px solid #FDE68A;
+        margin: 1rem 0;
+    }
+    .success-box {
+        background-color: #D1FAE5;
+        padding: 1rem;
+        border-radius: 10px;
+        border: 1px solid #A7F3D0;
+        margin: 1rem 0;
+    }
+    .user-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 1.5rem;
+        border-radius: 15px;
+        margin: 1rem 0;
+    }
+    .hide-button {
+        background-color: #6B7280 !important;
+        color: white !important;
+        border: none !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
     # ==================== LOGIN PAGE ====================
     if not st.session_state.logged_in:
         render_login_page()
         return
     
-    # ==================== LOGGED IN PAGES ====================
-    # Sidebar
+    # ==================== LOGGED IN ====================
     render_sidebar()
     
-    # Main content based on user role
-    if st.session_state.user_role == 'admin':
-        render_admin_dashboard()
-    else:
-        render_user_dashboard()
+    # Check current page from navigation
+    current_page = st.session_state.get('current_page', '🏠 ပင်မစာမျက်နှာ')
+    
+    if current_page == "🏠 ပင်မစာမျက်နှာ":
+        render_home_page()
+    elif current_page == "🎰 2D ထိုးစနစ်":
+        render_2d_system()
+    elif current_page == "👥 အကောင့်စီမံခန့်ခွဲမှု":
+        render_user_management()
+    elif current_page == "📊 အစီရင်ခံစာများ":
+        render_reports_page()
+    elif current_page == "⚙️ ဆက်တင်များ":
+        render_settings_page()
 
-# ==================== Login Page ====================
+# ==================== LOGIN PAGE ====================
 def render_login_page():
-    col1, col2, col3 = st.columns([1, 3, 1])
+    """Login page ပြသခြင်း"""
+    col1, col2, col3 = st.columns([1, 2, 1])
     
     with col2:
-        st.markdown('<h1 class="main-header">🔐 အကောင့်စီမံခန့်ခွဲမှုစနစ်</h1>', unsafe_allow_html=True)
+        st.markdown('<h1 class="main-title">🎰 2D စနစ် & အကောင့်မန်နေဂျာ</h1>', unsafe_allow_html=True)
         
         with st.container():
             st.markdown('<div class="info-box">', unsafe_allow_html=True)
-            st.markdown("### လုပ်ငန်းစနစ်သို့ ကြိုဆိုပါသည်")
-            st.write("ကျေးဇူးပြု၍ အကောင့်ဝင်ရောက်ပါ။")
+            st.markdown("### 🔐 အကောင့်ဝင်ရောက်ရန်")
+            st.write("ကျေးဇူးပြု၍ သင့်အကောင့်ဖြင့် ဝင်ရောက်ပါ။")
             st.markdown('</div>', unsafe_allow_html=True)
             
-            with st.form("login_form", clear_on_submit=False):
+            with st.form("login_form"):
                 username = st.text_input("👤 **အသုံးပြုသူအမည်**", 
-                                       placeholder="သင့်အသုံးပြုသူအမည်ထည့်ပါ",
-                                       key="login_username")
+                                       placeholder="သင့်အသုံးပြုသူအမည်ထည့်ပါ")
                 
                 password = st.text_input("🔒 **စကားဝှက်**", 
                                        type="password",
-                                       placeholder="သင့်စကားဝှက်ထည့်ပါ",
-                                       key="login_password")
+                                       placeholder="သင့်စကားဝှက်ထည့်ပါ")
                 
-                col_btn1, col_btn2 = st.columns(2)
-                with col_btn1:
-                    login_button = st.form_submit_button("🚀 **ဝင်ရောက်မည်**", 
-                                                       use_container_width=True,
-                                                       type="primary")
-                with col_btn2:
-                    clear_button = st.form_submit_button("🗑️ **ရှင်းလင်းမည်**",
-                                                        use_container_width=True)
+                login_button = st.form_submit_button("🚀 **ဝင်ရောက်မည်**", 
+                                                   use_container_width=True)
                 
                 if login_button:
                     if username and password:
-                        authenticated, role = authenticate(username, password)
+                        authenticated, role = authenticate_user(username, password)
                         if authenticated:
                             st.session_state.logged_in = True
                             st.session_state.user_role = role
                             st.session_state.current_user = username
+                            
+                            # Initialize user data
+                            init_user_data()
+                            
                             st.success(f"✅ **{username}** အနေနဲ့ ဝင်ရောက်ပြီးပါပြီ။")
+                            time.sleep(1)
                             st.rerun()
                         else:
                             st.error("❌ အသုံးပြုသူအမည် သို့မဟုတ် စကားဝှက် မှားယွင်းနေပါသည်။")
                     else:
                         st.warning("⚠ ကျေးဇူးပြု၍ အသုံးပြုသူအမည်နှင့် စကားဝှက်ထည့်ပါ။")
-                
-                if clear_button:
-                    st.rerun()
             
             # Demo credentials
             with st.expander("📋 သက်သေခံအချက်အလက်များ"):
-                col_demo1, col_demo2 = st.columns(2)
+                col_demo1, col_demo2, col_demo3 = st.columns(3)
                 with col_demo1:
-                    st.markdown("**👑 Admin Account:**")
-                    st.code("အသုံးပြုသူအမည်: admin\nစကားဝှက်: admin123")
+                    st.markdown("**👑 Admin:**")
+                    st.code("User: admin\nPass: admin123")
                 with col_demo2:
-                    st.markdown("**👤 User Account:**")
-                    st.code("အသုံးပြုသူအမည်: user1\nစကားဝှက်: user123")
-            
-            st.markdown("---")
-            st.caption("© 2024 အကောင့်စီမံခန့်ခွဲမှုစနစ် - ဗားရှင်း 1.0")
+                    st.markdown("**🎰 Agent:**")
+                    st.code("User: agent1\nPass: agent123")
+                with col_demo3:
+                    st.markdown("**👤 User:**")
+                    st.code("User: user1\nPass: user123")
 
-# ==================== Sidebar ====================
+# ==================== SIDEBAR ====================
 def render_sidebar():
+    """Sidebar ပြသခြင်း"""
     with st.sidebar:
         # User info card
         user_info = st.session_state.users_db[st.session_state.current_user]
@@ -345,198 +459,617 @@ def render_sidebar():
         </div>
         """, unsafe_allow_html=True)
         
+        # Myanmar time
+        current_time = format_myanmar_time()
+        st.markdown(f"""
+        <div class="info-box">
+            <p><strong>မြန်မာစံတော်ချိန်:</strong></p>
+            <h3 style="text-align: center; color: #1E40AF;">{current_time.split()[1]}</h3>
+            <p style="text-align: center;">{current_time.split()[0]}</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
         st.divider()
         
-        # Navigation
+        # Navigation - Different for different roles
         st.markdown("### 🗺️ လမ်းညွှန်မှု")
         
         if st.session_state.user_role == 'admin':
-            page = st.radio(
-                "စာမျက်နှာရွေးချယ်ရန်",
-                ["🏠 ပင်မစာမျက်နှာ", "👥 အကောင့်စီမံခန့်ခွဲမှု", "📊 အချက်အလက်များ", "⚙️ ဆက်တင်များ"],
-                index=0
-            )
-            st.session_state.current_page = page
+            page_options = [
+                "🏠 ပင်မစာမျက်နှာ",
+                "🎰 2D ထိုးစနစ်", 
+                "👥 အကောင့်စီမံခန့်ခွဲမှု",
+                "📊 အစီရင်ခံစာများ",
+                "⚙️ ဆက်တင်များ"
+            ]
+        elif st.session_state.user_role == 'agent':
+            page_options = [
+                "🏠 ပင်မစာမျက်နှာ",
+                "🎰 2D ထိုးစနစ်",
+                "📊 အစီရင်ခံစာများ",
+                "⚙️ ဆက်တင်များ"
+            ]
+        else:  # user
+            page_options = [
+                "🏠 ပင်မစာမျက်နှာ",
+                "📊 အစီရင်ခံစာများ",
+                "⚙️ ဆက်တင်များ"
+            ]
+        
+        selected_page = st.radio("စာမျက်နှာရွေးချယ်ရန်", page_options)
+        st.session_state.current_page = selected_page
         
         st.divider()
         
         # Quick stats
         st.markdown("### 📈 အချက်အလက်အကျဉ်း")
-        col_stat1, col_stat2 = st.columns(2)
-        with col_stat1:
+        
+        if st.session_state.user_role in ['admin', 'agent']:
+            today_entries = st.session_state.today_entries.get(st.session_state.current_user, [])
+            total_amount = sum(entry['amount'] for entry in today_entries)
+            
+            col_stat1, col_stat2 = st.columns(2)
+            with col_stat1:
+                st.metric("ယနေ့အရေအတွက်", len(today_entries))
+            with col_stat2:
+                st.metric("ယနေ့ပမာဏ", f"{total_amount:,} Ks")
+        else:
             st.metric("စုစုပေါင်းအကောင့်", len(st.session_state.users_db))
-        with col_stat2:
-            active_admins = sum(1 for u in st.session_state.users_db.values() if u['role'] == 'admin')
-            st.metric("Admin များ", active_admins)
         
         st.divider()
         
         # Logout button
-        if st.button("🚪 **ထွက်ခွာမည်**", use_container_width=True, type="secondary"):
-            logout()
+        if st.button("🚪 **ထွက်ခွာမည်**", use_container_width=True):
+            log_activity("Logout", f"User: {st.session_state.current_user}")
+            st.session_state.logged_in = False
+            st.session_state.user_role = ''
+            st.session_state.current_user = ''
             st.rerun()
 
-# ==================== User Dashboard ====================
-def render_user_dashboard():
+# ==================== HOME PAGE ====================
+def render_home_page():
+    """Home dashboard"""
+    st.markdown('<h1 class="main-title">🏠 ပင်မစာမျက်နှာ</h1>', unsafe_allow_html=True)
+    
     user_info = st.session_state.users_db[st.session_state.current_user]
     
-    st.markdown(f'<h1 class="main-header">👋 ကြိုဆိုပါတယ် {user_info["name"]}!</h1>', unsafe_allow_html=True)
+    # Welcome message
+    col_welcome, col_stats = st.columns([2, 1])
     
-    col_left, col_right = st.columns([2, 1])
+    with col_welcome:
+        st.markdown(f"""
+        <div class="info-box">
+            <h2>👋 ကြိုဆိုပါတယ် {user_info['name']}!</h2>
+            <p><strong>အခန်းကဏ္ဍ:</strong> {user_info['role']}</p>
+            <p><strong>အကောင့်ဖွင့်သည့်ရက်:</strong> {user_info['created_at']}</p>
+            <p><strong>နောက်ဆုံးဝင်ရောက်ချိန်:</strong> {user_info['last_login']}</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Quick actions based on role
+        st.markdown("### 🚀 အမြန်လုပ်ဆောင်ချက်များ")
+        
+        if st.session_state.user_role in ['admin', 'agent']:
+            col_act1, col_act2, col_act3 = st.columns(3)
+            
+            with col_act1:
+                if st.button("🎯 2D ထိုးရန်", use_container_width=True):
+                    st.session_state.current_page = "🎰 2D ထိုးစနစ်"
+                    st.rerun()
+            
+            with col_act2:
+                if st.button("📋 စာရင်းကြည့်ရန်", use_container_width=True):
+                    st.session_state.current_page = "🎰 2D ထိုးစနစ်"
+                    st.rerun()
+            
+            with col_act3:
+                if st.button("📊 အစီရင်ခံစာ", use_container_width=True):
+                    st.session_state.current_page = "📊 အစီရင်ခံစာများ"
+                    st.rerun()
+        
+        if st.session_state.user_role == 'admin':
+            col_admin1, col_admin2 = st.columns(2)
+            
+            with col_admin1:
+                if st.button("👥 အေဂျင့်မန်နေဂျာ", use_container_width=True):
+                    st.session_state.current_page = "👥 အကောင့်စီမံခန့်ခွဲမှု"
+                    st.rerun()
+            
+            with col_admin2:
+                if st.button("⚙️ ဆက်တင်များ", use_container_width=True):
+                    st.session_state.current_page = "⚙️ ဆက်တင်များ"
+                    st.rerun()
     
-    with col_left:
-        # Welcome message
-        st.markdown('<div class="info-box">', unsafe_allow_html=True)
-        st.markdown("### သင့်အကောင့်သို့ ကြိုဆိုပါသည်")
-        st.write(f"**အသုံးပြုသူအမည်:** `{st.session_state.current_user}`")
-        st.write(f"**အခန်းကဏ္ဍ:** `{user_info['role']}`")
-        st.write(f"**အကောင့်ဖွင့်သည့်ရက်:** `{user_info['created_at']}`")
+    with col_stats:
+        # System stats
+        st.markdown("### 📊 စနစ်အချက်အလက်")
         
-        if user_info.get('email'):
-            st.write(f"**အီးမေးလ်:** `{user_info['email']}`")
+        total_users = len(st.session_state.users_db)
+        admin_count = sum(1 for u in st.session_state.users_db.values() if u['role'] == 'admin')
+        agent_count = sum(1 for u in st.session_state.users_db.values() if u['role'] == 'agent')
+        user_count = sum(1 for u in st.session_state.users_db.values() if u['role'] == 'user')
         
-        st.markdown("---")
-        st.write("**လုပ်ဆောင်နိုင်သည်များ:**")
-        st.write("✅ သင့်အချက်အလက်များကြည့်ရှုခြင်း")
-        st.write("✅ လုပ်ဆောင်ချက်မှတ်တမ်းကြည့်ရှုခြင်း")
-        st.write("❌ အကောင့်အသစ်ထည့်သွင်းခြင်း (Admin များအတွက်သာ)")
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.metric("စုစုပေါင်းအသုံးပြုသူ", total_users)
+        st.metric("Admin များ", admin_count)
+        st.metric("အေဂျင့်များ", agent_count)
+        st.metric("User များ", user_count)
         
-        # Activity log (last 5 activities)
-        st.markdown('<h3 class="section-header">📝 လတ်တလောလုပ်ဆောင်ချက်များ</h3>', unsafe_allow_html=True)
+        # Activity log preview
+        st.markdown("### 📝 နောက်ဆုံးလုပ်ဆောင်ချက်များ")
+        recent_activities = st.session_state.activity_log[-5:]
         
-        user_activities = [log for log in st.session_state.activity_log 
-                          if log['user'] == st.session_state.current_user][-5:]
-        
-        if user_activities:
-            for activity in reversed(user_activities):
-                with st.container():
-                    st.markdown(f"""
-                    <div style="background-color: #f8f9fa; padding: 10px; border-radius: 5px; margin: 5px 0; border-left: 4px solid #4f46e5;">
-                    <strong>{activity['action']}</strong><br>
-                    <small>{activity['timestamp']}</small><br>
-                    <small>{activity['details']}</small>
-                    </div>
-                    """, unsafe_allow_html=True)
+        if recent_activities:
+            for activity in reversed(recent_activities):
+                st.caption(f"{activity['timestamp']} - {activity['user']}: {activity['action']}")
         else:
             st.info("မည်သည့်လုပ်ဆောင်ချက်မှမရှိသေးပါ။")
-    
-    with col_right:
-        # Important notice
-        st.markdown('<div class="warning-box">', unsafe_allow_html=True)
-        st.markdown("### ⚠ သတိပြုရန်")
-        st.write("""
-        အကောင့်အသစ်ထည့်သွင်းခွင့်သည် **Admin** များအတွက်သာဖြစ်ပါသည်။
-        
-        လိုအပ်ပါက သက်ဆိုင်ရာ Admin ထံ တောင်းဆိုပါ။
-        
-        **အရေးပေါ်အခြေအနေ:**
-        - အကောင့်ပြဿနာရှိပါက Admin ကိုအကြောင်းကြားပါ
-        - စကားဝှက်မေ့သွားပါက Reset လုပ်ရန်လိုအပ်ပါသည်
-        """)
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        # Cache info
-        st.markdown('<h3 class="section-header">💾 Cache အချက်အလက်</h3>', unsafe_allow_html=True)
-        
-        cache_size = len(st.session_state.number_limits_cache)
-        st.metric("Cache အရွယ်အစား", f"{cache_size} items")
-        
-        if st.button("🔍 Cache အချက်အလက်များကြည့်ရှုရန်"):
-            if st.session_state.number_limits_cache:
-                st.write(st.session_state.number_limits_cache)
-            else:
-                st.info("Cache ထဲတွင် အချက်အလက်မရှိပါ။")
 
-# ==================== Admin Dashboard ====================
-def render_admin_dashboard():
-    # Get current page from session state
-    current_page = st.session_state.get('current_page', '🏠 ပင်မစာမျက်နှာ')
+# ==================== 2D SYSTEM ====================
+def render_2d_system():
+    """2D Betting System"""
     
-    if current_page == "🏠 ပင်မစာမျက်နှာ":
-        render_admin_home()
-    elif current_page == "👥 အကောင့်စီမံခန့်ခွဲမှု":
-        render_user_management()
-    elif current_page == "📊 အချက်အလက်များ":
-        render_statistics()
-    elif current_page == "⚙️ ဆက်တင်များ":
-        render_settings()
+    # Check if user is agent or admin
+    if st.session_state.user_role not in ['admin', 'agent']:
+        st.error("⚠️ ဤစနစ်ကို အသုံးပြုခွင့်မရှိပါ။ Admin သို့မဟုတ် Agent များသာအသုံးပြုနိုင်ပါသည်။")
+        return
+    
+    # Check if user has configured sheet URL
+    user_config = st.session_state.user_configs.get(st.session_state.current_user, {})
+    
+    if not user_config.get('sheet_url'):
+        render_sheet_configuration()
+        return
+    
+    # Create tabs for 2D system
+    tab1, tab2, tab3, tab4 = st.tabs(["🎯 ဂဏန်းထည့်ရန်", "📋 ယနေ့စာရင်း", "⚙️ 2D ဆက်တင်များ", "📊 2D အစီရင်ခံစာ"])
+    
+    with tab1:
+        render_2d_entry_form()
+    
+    with tab2:
+        render_2d_today_entries()
+    
+    with tab3:
+        render_2d_settings()
+    
+    with tab4:
+        render_2d_reports()
 
-def render_admin_home():
-    st.markdown('<h1 class="main-header">⚙️ Admin Panel - စီမံခန့်ခွဲမှုဗဟို</h1>', unsafe_allow_html=True)
+def render_sheet_configuration():
+    """Sheet configuration for 2D system"""
+    st.markdown('<h1 class="main-title">🎰 2D ထိုးစနစ်</h1>', unsafe_allow_html=True)
     
-    # Quick stats cards
-    col1, col2, col3, col4 = st.columns(4)
+    st.markdown("""
+    <div class="info-box">
+    <h3>📋 Google Sheets ချိတ်ဆက်ရန်</h3>
+    <p>2D ထိုးစနစ်ကိုအသုံးပြုရန် ကျေးဇူးပြု၍ သင့်ရဲ့ Google Sheets URL ကိုထည့်ပါ။</p>
+    <p>ဒေတာများကို ဒီ Sheet ထဲသို့အလိုအလျောက်သိမ်းဆည်းပေးပါမည်။</p>
+    </div>
+    """, unsafe_allow_html=True)
     
-    with col1:
-        st.metric("စုစုပေါင်းအကောင့်", len(st.session_state.users_db))
-    with col2:
-        admin_count = sum(1 for u in st.session_state.users_db.values() if u['role'] == 'admin')
-        st.metric("Admin အကောင့်", admin_count)
-    with col3:
-        user_count = sum(1 for u in st.session_state.users_db.values() if u['role'] == 'user')
-        st.metric("User အကောင့်", user_count)
-    with col4:
-        today = datetime.now().strftime("%Y-%m-%d")
-        today_logins = sum(1 for u in st.session_state.users_db.values() 
-                          if u['last_login'].startswith(today))
-        st.metric("ယနေ့ဝင်ရောက်သူ", today_logins)
-    
-    st.divider()
-    
-    # Quick actions
-    st.markdown('<h3 class="sub-header">🚀 အမြန်လုပ်ဆောင်ချက်များ</h3>', unsafe_allow_html=True)
-    
-    col_act1, col_act2, col_act3 = st.columns(3)
-    
-    with col_act1:
-        if st.button("👤 အကောင့်အသစ်ထည့်ရန်", use_container_width=True):
-            st.session_state.current_page = "👥 အကောင့်စီမံခန့်ခွဲမှု"
-            st.rerun()
-    
-    with col_act2:
-        if st.button("📊 အချက်အလက်များကြည့်ရန်", use_container_width=True):
-            st.session_state.current_page = "📊 အချက်အလက်များ"
-            st.rerun()
-    
-    with col_act3:
-        if st.button("📝 လုပ်ဆောင်ချက်မှတ်တမ်း", use_container_width=True):
-            view_activity_log()
-    
-    st.divider()
-    
-    # Recent activities
-    st.markdown('<h3 class="sub-header">📝 နောက်ဆုံးလုပ်ဆောင်ချက်များ</h3>', unsafe_allow_html=True)
-    
-    recent_activities = st.session_state.activity_log[-10:]
-    if recent_activities:
-        for activity in reversed(recent_activities):
-            col_icon, col_content = st.columns([0.1, 0.9])
-            with col_icon:
-                if "Login" in activity['action']:
-                    st.write("🔐")
-                elif "Add" in activity['action']:
-                    st.write("➕")
-                elif "Update" in activity['action']:
-                    st.write("✏️")
-                elif "Delete" in activity['action']:
-                    st.write("🗑️")
+    with st.form("sheet_config_form"):
+        sheet_url = st.text_input(
+            "Google Sheets URL *",
+            placeholder="https://docs.google.com/spreadsheets/d/...",
+            help="သင့်ရဲ့ Google Sheets လင့်ကိုထည့်ပါ"
+        )
+        
+        script_url = st.text_input(
+            "Google Apps Script URL (Optional)",
+            placeholder="https://script.google.com/...",
+            help="Auto-update အတွက် Apps Script URL"
+        )
+        
+        # Test connection
+        test_col1, test_col2 = st.columns([1, 3])
+        with test_col1:
+            test_connection = st.form_submit_button("🔗 ချိတ်ဆက်စမ်းသပ်မည်")
+        
+        if test_connection and sheet_url:
+            with st.spinner("ချိတ်ဆက်စမ်းသပ်နေပါသည်..."):
+                sheet, message = connect_to_google_sheets(sheet_url)
+                if sheet:
+                    st.success(f"✅ {message}")
                 else:
-                    st.write("📝")
+                    st.error(f"❌ {message}")
+        
+        # Save configuration
+        save_config = st.form_submit_button("💾 သိမ်းဆည်းမည်", use_container_width=True)
+        
+        if save_config and sheet_url:
+            st.session_state.user_configs[st.session_state.current_user] = {
+                'sheet_url': sheet_url,
+                'script_url': script_url
+            }
             
-            with col_content:
-                st.markdown(f"""
-                **{activity['action']}** - *{activity['user']}*
-                <br><small>{activity['timestamp']}</small>
-                <br><small>{activity['details']}</small>
-                """, unsafe_allow_html=True)
-            st.divider()
-    else:
-        st.info("မည်သည့်လုပ်ဆောင်ချက်မှမရှိသေးပါ။")
+            sheet, message = connect_to_google_sheets(sheet_url)
+            if sheet:
+                st.success(f"✅ ဆက်တင်များသိမ်းဆည်းပြီး Google Sheets ချိတ်ဆက်ပြီးပါပြီ။")
+                st.balloons()
+                time.sleep(2)
+                st.rerun()
+            else:
+                st.error(f"❌ ဆက်တင်များသိမ်းဆည်းပြီးသော်လည်း {message}")
 
-# ==================== USER MANAGEMENT PAGE ====================
+def render_2d_entry_form():
+    """2D number entry form"""
+    st.markdown('<h2 class="sub-title">🎯 ဂဏန်းထည့်သွင်းရန်</h2>', unsafe_allow_html=True)
+    
+    # Hide/show toggle
+    col_hide, col_info = st.columns([1, 3])
+    with col_hide:
+        if st.button("🙈 ဖျောက်မည်", key="hide_2d_form"):
+            st.session_state.hidden_sections['2d_form'] = True
+            st.rerun()
+    
+    if st.session_state.hidden_sections.get('2d_form', False):
+        if st.button("👁️ ပြမည်", key="show_2d_form"):
+            st.session_state.hidden_sections['2d_form'] = False
+            st.rerun()
+        return
+    
+    with st.form("number_entry_form", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            better_name = st.text_input(
+                "ထိုးသူအမည် *",
+                placeholder="ဥပမာ - ကိုကျော်မင်း"
+            )
+            
+            number = st.text_input(
+                "ထိုးမည့်ဂဏန်း *",
+                placeholder="ဥပမာ - 55 (2D) သို့မဟုတ် 123 (3D)"
+            )
+            
+            winning_number = st.text_input(
+                "ပေါက်ဂဏန်း (Optional)",
+                placeholder="ထွက်သောဂဏန်း"
+            )
+        
+        with col2:
+            quantity = st.number_input(
+                "အရေအတွက် *",
+                min_value=1,
+                max_value=100,
+                value=1
+            )
+            
+            amount = 0
+            if number and quantity:
+                is_valid, _ = validate_number(number)
+                if is_valid:
+                    amount = calculate_amount(number, quantity)
+            
+            st.markdown(f"""
+            <div style="background-color: #F0F9FF; padding: 1rem; border-radius: 10px;">
+                <p><strong>တွက်ချက်ထားသောပမာဏ:</strong></p>
+                <h2 style="color: #1E40AF; text-align: center;">{amount:,} Ks</h2>
+                <p style="text-align: center; font-size: 0.9rem; color: #6B7280;">
+                (ဂဏန်းတစ်လုံးလျှင် {PRICE_PER_NUMBER:,} Ks)
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            note = st.text_area(
+                "မှတ်ချက် (Optional)",
+                placeholder="အထူးမှတ်ချက်ရှိပါကထည့်ပါ",
+                height=50
+            )
+        
+        submitted = st.form_submit_button(
+            "✅ **ဂဏန်းထည့်သွင်းမည်**",
+            use_container_width=True,
+            type="primary"
+        )
+        
+        if submitted:
+            errors = []
+            
+            is_name_valid, name_error = validate_name(better_name)
+            if not is_name_valid:
+                errors.append(name_error)
+            
+            is_number_valid, number_error = validate_number(number)
+            if not is_number_valid:
+                errors.append(number_error)
+            
+            if quantity <= 0:
+                errors.append("အရေအတွက်သည် ၁ ထက်ကြီးရမည်")
+            
+            if errors:
+                for error in errors:
+                    st.error(f"❌ {error}")
+            else:
+                entry = {
+                    'id': len(st.session_state.today_entries.get(st.session_state.current_user, [])) + 1,
+                    'time': format_myanmar_time(),
+                    'name': better_name,
+                    'number': number,
+                    'quantity': quantity,
+                    'amount': amount,
+                    'winning_number': winning_number if winning_number else '',
+                    'status': 'စောင့်ဆိုင်းနေ',
+                    'note': note if note else ''
+                }
+                
+                if st.session_state.current_user not in st.session_state.today_entries:
+                    st.session_state.today_entries[st.session_state.current_user] = []
+                
+                st.session_state.today_entries[st.session_state.current_user].append(entry)
+                
+                user_config = st.session_state.user_configs.get(st.session_state.current_user, {})
+                sheet_url = user_config.get('sheet_url', '')
+                script_url = user_config.get('script_url', '')
+                
+                if sheet_url:
+                    success, message = save_to_google_sheets(entry, sheet_url, script_url)
+                    if success:
+                        st.success(f"✅ ဂဏန်းထည့်သွင်းပြီး Google Sheets သို့သိမ်းဆည်းပြီးပါပြီ။")
+                    else:
+                        st.warning(f"⚠️ ဂဏန်းထည့်သွင်းပြီးသော်လည်း {message}")
+                else:
+                    st.success("✅ ဂဏန်းထည့်သွင်းပြီးပါပြီ။")
+                
+                st.balloons()
+
+def render_2d_today_entries():
+    """Today's 2D entries"""
+    st.markdown('<h2 class="sub-title">📋 ယနေ့ထည့်သွင်းထားသောဂဏန်းများ</h2>', unsafe_allow_html=True)
+    
+    # Hide/show toggle
+    if st.button("🙈 ဤကဏ္ဍကိုဖျောက်မည်", key="hide_today_2d"):
+        st.session_state.hidden_sections['today_2d'] = True
+        st.rerun()
+    
+    if st.session_state.hidden_sections.get('today_2d', False):
+        if st.button("👁️ ဤကဏ္ဍကိုပြမည်", key="show_today_2d"):
+            st.session_state.hidden_sections['today_2d'] = False
+            st.rerun()
+        return
+    
+    today_entries = st.session_state.today_entries.get(st.session_state.current_user, [])
+    
+    if not today_entries:
+        st.info("ယနေ့အတွက် မည်သည့်ဂဏန်းမှမထည့်ရသေးပါ။")
+        return
+    
+    # Summary
+    total_quantity = sum(entry['quantity'] for entry in today_entries)
+    total_amount = sum(entry['amount'] for entry in today_entries)
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("စုစုပေါင်းအရေအတွက်", len(today_entries))
+    with col2:
+        st.metric("စုစုပေါင်းထိုးခြင်းအရေအတွက်", total_quantity)
+    with col3:
+        st.metric("စုစုပေါင်းပမာဏ", f"{total_amount:,} Ks")
+    
+    st.divider()
+    
+    # Edit/Delete
+    st.markdown("### ✏️ စာရင်းပြင်ဆင်ခြင်း/ဖျက်ခြင်း")
+    
+    for i, entry in enumerate(today_entries):
+        with st.expander(f"#{i+1} - {entry['name']} ({entry['number']}) - {entry['amount']:,} Ks"):
+            col_info, col_actions = st.columns([3, 1])
+            
+            with col_info:
+                st.write(f"**အချိန်:** {entry['time']}")
+                st.write(f"**ထိုးသူအမည်:** {entry['name']}")
+                st.write(f"**ဂဏန်း:** {entry['number']}")
+                st.write(f"**အရေအတွက်:** {entry['quantity']}")
+                st.write(f"**ပမာဏ:** {entry['amount']:,} Ks")
+                if entry['winning_number']:
+                    st.write(f"**ပေါက်ဂဏန်း:** {entry['winning_number']}")
+                st.write(f"**အခြေအနေ:** {entry['status']}")
+                if entry['note']:
+                    st.write(f"**မှတ်ချက်:** {entry['note']}")
+            
+            with col_actions:
+                if st.button("✏️", key=f"edit_2d_{i}"):
+                    st.session_state.editing_2d_entry = i
+                    st.rerun()
+                
+                if st.button("🗑️", key=f"delete_2d_{i}"):
+                    today_entries.pop(i)
+                    st.success("စာရင်းဖျက်ပြီးပါပြီ။")
+                    time.sleep(1)
+                    st.rerun()
+    
+    # Edit form
+    if 'editing_2d_entry' in st.session_state:
+        entry_index = st.session_state.editing_2d_entry
+        if entry_index < len(today_entries):
+            entry = today_entries[entry_index]
+            
+            st.markdown("---")
+            st.markdown("### ✏️ စာရင်းပြင်ဆင်ခြင်း")
+            
+            with st.form(f"edit_2d_form_{entry_index}"):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    edited_name = st.text_input("ထိုးသူအမည်", value=entry['name'])
+                    edited_number = st.text_input("ဂဏန်း", value=entry['number'])
+                    edited_winning = st.text_input("ပေါက်ဂဏန်း", value=entry.get('winning_number', ''))
+                
+                with col2:
+                    edited_quantity = st.number_input("အရေအတွက်", 
+                                                     min_value=1, 
+                                                     value=entry['quantity'])
+                    edited_status = st.selectbox(
+                        "အခြေအနေ",
+                        ["စောင့်ဆိုင်းနေ", "ထိုးပြီး", "ပေါက်ပြီး", "မပေါက်ပါ"],
+                        index=["စောင့်ဆိုင်းနေ", "ထိုးပြီး", "ပေါက်ပြီး", "မပေါက်ပါ"]
+                            .index(entry['status'])
+                    )
+                    edited_note = st.text_area("မှတ်ချက်", value=entry.get('note', ''))
+                
+                col_save, col_cancel = st.columns(2)
+                with col_save:
+                    if st.form_submit_button("💾 သိမ်းဆည်းမည်"):
+                        today_entries[entry_index]['name'] = edited_name
+                        today_entries[entry_index]['number'] = edited_number
+                        today_entries[entry_index]['quantity'] = edited_quantity
+                        today_entries[entry_index]['amount'] = calculate_amount(edited_number, edited_quantity)
+                        today_entries[entry_index]['winning_number'] = edited_winning
+                        today_entries[entry_index]['status'] = edited_status
+                        today_entries[entry_index]['note'] = edited_note
+                        
+                        user_config = st.session_state.user_configs.get(st.session_state.current_user, {})
+                        sheet_url = user_config.get('sheet_url', '')
+                        if sheet_url:
+                            edited_entry = today_entries[entry_index].copy()
+                            edited_entry['note'] = f"(ပြင်ဆင်ထား) {edited_note}"
+                            save_to_google_sheets(edited_entry, sheet_url)
+                        
+                        del st.session_state.editing_2d_entry
+                        st.success("စာရင်းပြင်ဆင်ပြီးပါပြီ။")
+                        time.sleep(1)
+                        st.rerun()
+                
+                with col_cancel:
+                    if st.form_submit_button("❌ ပယ်ဖျက်မည်"):
+                        del st.session_state.editing_2d_entry
+                        st.rerun()
+
+def render_2d_settings():
+    """2D system settings"""
+    st.markdown('<h2 class="sub-title">⚙️ 2D ဆက်တင်များ</h2>', unsafe_allow_html=True)
+    
+    user_config = st.session_state.user_configs.get(st.session_state.current_user, {})
+    
+    with st.form("2d_settings_form"):
+        st.markdown("### 🔗 Google Sheets ဆက်တင်များ")
+        
+        current_sheet_url = st.text_input(
+            "Google Sheets URL",
+            value=user_config.get('sheet_url', ''),
+            placeholder="https://docs.google.com/spreadsheets/d/..."
+        )
+        
+        current_script_url = st.text_input(
+            "Google Apps Script URL",
+            value=user_config.get('script_url', ''),
+            placeholder="https://script.google.com/..."
+        )
+        
+        if st.form_submit_button("🔗 ချိတ်ဆက်စမ်းသပ်မည်"):
+            if current_sheet_url:
+                with st.spinner("ချိတ်ဆက်စမ်းသပ်နေပါသည်..."):
+                    sheet, message = connect_to_google_sheets(current_sheet_url)
+                    if sheet:
+                        st.success(f"✅ {message}")
+                    else:
+                        st.error(f"❌ {message}")
+            else:
+                st.warning("Sheet URL ထည့်ပါ")
+        
+        if st.form_submit_button("💾 ဆက်တင်များသိမ်းဆည်းမည်"):
+            st.session_state.user_configs[st.session_state.current_user] = {
+                'sheet_url': current_sheet_url,
+                'script_url': current_script_url
+            }
+            st.success("✅ ဆက်တင်များသိမ်းဆည်းပြီးပါပြီ။")
+            st.rerun()
+    
+    st.divider()
+    
+    # Data management
+    st.markdown("### 🗃️ ဒေတာစီမံခန့်ခွဲမှု")
+    
+    col_reset, col_export = st.columns(2)
+    
+    with col_reset:
+        if st.button("🔄 ယနေ့စာရင်းအားလုံးဖျက်ရန်"):
+            if st.checkbox("သေချာပါသလား?"):
+                st.session_state.today_entries[st.session_state.current_user] = []
+                st.success("ယနေ့စာရင်းအားလုံးဖျက်ပြီးပါပြီ။")
+                time.sleep(1)
+                st.rerun()
+    
+    with col_export:
+        if st.button("📤 ယနေ့ဒေတာထုတ်ယူရန်"):
+            today_entries = st.session_state.today_entries.get(st.session_state.current_user, [])
+            if today_entries:
+                df = pd.DataFrame(today_entries)
+                csv = df.to_csv(index=False, encoding='utf-8-sig')
+                
+                today_date = get_today_date()
+                st.download_button(
+                    label="💾 CSV ဖိုင်ဒေါင်းလုတ်လုပ်ရန်",
+                    data=csv,
+                    file_name=f"2d_entries_{st.session_state.current_user}_{today_date}.csv",
+                    mime="text/csv"
+                )
+            else:
+                st.info("ယနေ့အတွက် မည်သည့်ဒေတာမှမရှိသေးပါ။")
+
+def render_2d_reports():
+    """2D reports"""
+    st.markdown('<h2 class="sub-title">📊 2D အစီရင်ခံစာ</h2>', unsafe_allow_html=True)
+    
+    # Date selection
+    col1, col2 = st.columns(2)
+    with col1:
+        start_date = st.date_input("စတင်ရက်", 
+                                  value=datetime.now(MYANMAR_TZ).date())
+    with col2:
+        end_date = st.date_input("ပြီးဆုံးရက်", 
+                                value=datetime.now(MYANMAR_TZ).date())
+    
+    # Report type
+    report_type = st.selectbox(
+        "အစီရင်ခံစာအမျိုးအစား",
+        ["နေ့စဉ်အစီရင်ခံစာ", "ဂဏန်းအလိုက်အစီရင်ခံစာ", "ဘဏ္ဍာရေးအစီရင်ခံစာ"]
+    )
+    
+    if st.button("📊 အစီရင်ခံစာထုတ်မည်"):
+        today_entries = st.session_state.today_entries.get(st.session_state.current_user, [])
+        
+        if today_entries:
+            df = pd.DataFrame(today_entries)
+            
+            # Summary stats
+            total_entries = len(df)
+            total_amount = df['amount'].sum()
+            avg_per_entry = df['amount'].mean()
+            
+            col_sum1, col_sum2, col_sum3 = st.columns(3)
+            with col_sum1:
+                st.metric("စုစုပေါင်းအရေအတွက်", total_entries)
+            with col_sum2:
+                st.metric("စုစုပေါင်းပမာဏ", f"{total_amount:,} Ks")
+            with col_sum3:
+                st.metric("ပျမ်းမျှပမာဏ", f"{avg_per_entry:,.0f} Ks")
+            
+            # Top numbers
+            st.markdown("### 🔝 အများဆုံးထိုးသောဂဏန်းများ")
+            number_counts = df['number'].value_counts().head(10)
+            st.bar_chart(number_counts)
+            
+            # Export option
+            if st.button("📥 အစီရင်ခံစာထုတ်ယူရန်"):
+                csv = df.to_csv(index=False, encoding='utf-8-sig')
+                st.download_button(
+                    label="💾 CSV အစီရင်ခံစာဒေါင်းလုတ်လုပ်ရန်",
+                    data=csv,
+                    file_name=f"2d_report_{st.session_state.current_user}_{get_today_date()}.csv",
+                    mime="text/csv"
+                )
+        else:
+            st.info("ယနေ့အတွက် မည်သည့်ဒေတာမှမရှိသေးပါ။")
+
+# ==================== USER MANAGEMENT ====================
 def render_user_management():
-    st.markdown('<h1 class="main-header">👥 အကောင့်စီမံခန့်ခွဲမှု</h1>', unsafe_allow_html=True)
+    """User management panel (admin only)"""
+    if st.session_state.user_role != 'admin':
+        st.error("⚠️ ဤစနစ်ကို Admin များသာအသုံးပြုနိုင်ပါသည်။")
+        return
+    
+    st.markdown('<h1 class="main-title">👥 အကောင့်စီမံခန့်ခွဲမှု</h1>', unsafe_allow_html=True)
     
     tab1, tab2, tab3, tab4 = st.tabs(["➕ အကောင့်အသစ်ထည့်ခြင်း", "📋 အကောင့်စာရင်း", "✏️ အကောင့်ပြင်ဆင်ခြင်း", "🗑️ အကောင့်ဖျက်ခြင်း"])
     
@@ -553,19 +1086,9 @@ def render_user_management():
         render_delete_user()
 
 def render_add_user_form():
-    """အကောင့်အသစ်ထည့်သွင်းရန် form"""
-    st.markdown('<h3 class="section-header">အကောင့်အသစ်ထည့်သွင်းရန်</h3>', unsafe_allow_html=True)
+    """Add new user form"""
+    st.markdown('<h3 class="sub-title">အကောင့်အသစ်ထည့်သွင်းရန်</h3>', unsafe_allow_html=True)
     
-    # Important instruction
-    st.markdown("""
-    <div class="info-box">
-    <h4>⚠ မှတ်ချက်</h4>
-    <p>ကျေးဇူးပြု၍ အောက်ပါအချက်အလက်များကိုဖြည့်ပြီး <b>"အကောင့်အသစ်ထည့်သွင်းမည်"</b> ခလုတ်ကိုနှိပ်ပါ။</p>
-    <p><b>Enter ခလုတ်နှိပ်၍ မပို့ပါနှင့်။</b></p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Main form - ဒီနေရာမှာ form submit button ကိုသေချာထည့်ထားပါတယ်
     with st.form("add_user_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
         
@@ -573,132 +1096,59 @@ def render_add_user_form():
             new_username = st.text_input(
                 "အသုံးပြုသူအမည် *",
                 placeholder="john_doe",
-                help="အင်္ဂလိပ်အက္ခရာ၊ နံပါတ်နှင့် underscore သာ (အနည်းဆုံး ၃ လုံး)",
-                key="new_username"
+                help="အင်္ဂလိပ်အက္ခရာ၊ နံပါတ်နှင့် underscore သာ"
             )
             
             new_password = st.text_input(
                 "စကားဝှက် *",
                 type="password",
-                placeholder="အနည်းဆုံး ၆ လုံး",
-                help="အနည်းဆုံးစာလုံး ၆ လုံးပါဝင်ရမည်",
-                key="new_password"
+                placeholder="အနည်းဆုံး ၆ လုံး"
             )
         
         with col2:
             new_name = st.text_input(
                 "အမည်အပြည့်အစုံ *",
-                placeholder="ဦးကျော်ကျော်",
-                help="အပြည့်အစုံအမည်ထည့်ပါ",
-                key="new_fullname"
+                placeholder="ဦးကျော်ကျော်"
             )
             
             new_role = st.selectbox(
                 "အခန်းကဏ္ဍ *",
-                ["user", "admin"],
-                help="User သို့မဟုတ် Admin အခန်းကဏ္ဍ",
-                key="new_role"
+                ["user", "agent", "admin"],
+                help="User, Agent, သို့မဟုတ် Admin"
             )
         
         new_email = st.text_input(
             "အီးမေးလ်",
             placeholder="example@gmail.com",
-            help="Optional - အီးမေးလ်လိပ်စာ",
-            key="new_email"
+            help="Optional"
         )
         
-        # Requirements
-        st.markdown("""
-        <div class="warning-box">
-        <h5>✅ လိုအပ်ချက်များ:</h5>
-        <ul>
-        <li>အသုံးပြုသူအမည် - အနည်းဆုံး ၃ လုံး</li>
-        <li>စကားဝှက် - အနည်းဆုံး ၆ လုံး</li>
-        <li>အမည်အပြည့်အစုံ - မဖြစ်မနေထည့်ရန်</li>
-        <li>* ပါသောနေရာများ - မဖြစ်မနေဖြည့်ရန်</li>
-        </ul>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # FORM SUBMIT BUTTON - ဒီနေရာကအရေးကြီးပါတယ်
-        col_submit1, col_submit2 = st.columns([3, 1])
-        with col_submit1:
-            submitted = st.form_submit_button(
-                "✅ **အကောင့်အသစ်ထည့်သွင်းမည်** (ဤခလုတ်ကိုနှိပ်ပါ)",
-                use_container_width=True,
-                type="primary"
-            )
-        with col_submit2:
-            st.form_submit_button(
-                "🗑️ **ရှင်းလင်းမည်**",
-                use_container_width=True,
-                type="secondary"
-            )
+        submitted = st.form_submit_button(
+            "✅ **အကောင့်အသစ်ထည့်သွင်းမည်**",
+            use_container_width=True
+        )
         
         if submitted:
-            # Validation
-            if not all([new_username, new_password, new_name, new_role]):
-                st.error("❌ ကျေးဇူးပြု၍ လိုအပ်သောအချက်အလက်အားလုံးကို ဖြည့်စွက်ပါ။")
-                return
-            
-            if len(new_username) < 3:
-                st.error("❌ အသုံးပြုသူအမည်သည် အနည်းဆုံး ၃ လုံးပါဝင်ရမည်။")
-                return
-            
-            if len(new_password) < 6:
-                st.error("❌ စကားဝှက်သည် အနည်းဆုံး ၆ လုံးပါဝင်ရမည်။")
-                return
-            
-            if not re.match("^[a-zA-Z0-9_]+$", new_username):
-                st.error("❌ အသုံးပြုသူအမည်တွင် အင်္ဂလိပ်အက္ခရာ၊ နံပါတ်နှင့် underscore သာပါဝင်နိုင်သည်။")
-                return
-            
-            # Add user
-            success, message = add_user(new_username, new_password, new_role, new_name, new_email)
-            
+            success, message = add_new_user(new_username, new_password, new_role, new_name, new_email)
             if success:
-                st.markdown(f'<div class="success-box"><h4>✅ အောင်မြင်ပါသည်!</h4><p>{message}</p></div>', unsafe_allow_html=True)
-                st.balloons()
-                
-                # Show new user info
-                with st.expander("🆕 အသစ်ထည့်သွင်းထားသောအကောင့်အချက်အလက်"):
-                    new_user = st.session_state.users_db[new_username]
-                    st.json({
-                        "အသုံးပြုသူအမည်": new_username,
-                        "အမည်": new_user['name'],
-                        "အခန်းကဏ္ဍ": new_user['role'],
-                        "အီးမေးလ်": new_user['email'],
-                        "ဖန်တီးသည့်ရက်": new_user['created_at']
-                    })
+                st.success(message)
+                st.rerun()
             else:
-                st.error(f"❌ {message}")
+                st.error(message)
 
 def render_user_list():
-    """အကောင့်များစာရင်းပြသခြင်း"""
-    st.markdown('<h3 class="section-header">အကောင့်များစာရင်း</h3>', unsafe_allow_html=True)
+    """User list display"""
+    st.markdown('<h3 class="sub-title">အကောင့်များစာရင်း</h3>', unsafe_allow_html=True)
     
-    # Search and filter
-    col_search, col_filter, col_refresh = st.columns([2, 1, 1])
-    
-    with col_search:
-        search_term = st.text_input("🔍 ရှာဖွေရန်", placeholder="အမည် သို့မဟုတ် အသုံးပြုသူအမည်ဖြင့်ရှာပါ")
-    
-    with col_filter:
-        role_filter = st.selectbox("အခန်းကဏ္ဍရွေးချယ်ရန်", ["အားလုံး", "admin", "user"])
-    
-    with col_refresh:
-        if st.button("🔄 ပြန်လည်စတင်မည်", use_container_width=True):
-            st.rerun()
-    
-    # Display users in table
     users_list = []
     for username, details in st.session_state.users_db.items():
-        # Apply filters
-        if search_term and search_term.lower() not in username.lower() and search_term.lower() not in details['name'].lower():
-            continue
-        
-        if role_filter != "အားလုံး" and details['role'] != role_filter:
-            continue
+        # Get 2D stats for agents
+        today_count = 0
+        today_amount = 0
+        if details['role'] in ['admin', 'agent']:
+            today_entries = st.session_state.today_entries.get(username, [])
+            today_count = len(today_entries)
+            today_amount = sum(entry['amount'] for entry in today_entries)
         
         users_list.append({
             'အသုံးပြုသူအမည်': username,
@@ -706,52 +1156,20 @@ def render_user_list():
             'အခန်းကဏ္ဍ': details['role'],
             'အီးမေးလ်': details.get('email', 'N/A'),
             'အကောင့်ဖွင့်သည့်ရက်': details['created_at'],
-            'နောက်ဆုံးဝင်ရောက်ချိန်': details['last_login']
+            'ယနေ့ 2D အရေအတွက်': today_count if details['role'] in ['admin', 'agent'] else 'N/A',
+            'ယနေ့ 2D ပမာဏ': f"{today_amount:,} Ks" if details['role'] in ['admin', 'agent'] else 'N/A'
         })
     
     if users_list:
         df = pd.DataFrame(users_list)
-        
-        # Style the dataframe
-        def highlight_admin(row):
-            if row['အခန်းကဏ္ဍ'] == 'admin':
-                return ['background-color: #d4edda'] * len(row)
-            return [''] * len(row)
-        
-        styled_df = df.style.apply(highlight_admin, axis=1)
-        
-        st.dataframe(styled_df, use_container_width=True, hide_index=True)
-        
-        # Statistics
-        st.markdown("### 📊 စာရင်းဇယား")
-        col_stat1, col_stat2, col_stat3 = st.columns(3)
-        
-        with col_stat1:
-            st.metric("စုစုပေါင်းအကောင့်", len(users_list))
-        with col_stat2:
-            admin_count = sum(1 for u in users_list if u['အခန်းကဏ္ဍ'] == 'admin')
-            st.metric("Admin အကောင့်", admin_count)
-        with col_stat3:
-            user_count = sum(1 for u in users_list if u['အခန်းကဏ္ဍ'] == 'user')
-            st.metric("User အကောင့်", user_count)
-        
-        # Export option
-        if st.button("📥 CSV ဖိုင်ထုတ်ယူရန်"):
-            csv = df.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="💾 CSV ဖိုင်ဒေါင်းလုတ်လုပ်ရန်",
-                data=csv,
-                file_name=f"users_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv"
-            )
+        st.dataframe(df, use_container_width=True, hide_index=True)
     else:
-        st.info("ရှာဖွေမှုနှင့်ကိုက်ညီသော အကောင့်များမတွေ့ရှိပါ။")
+        st.info("မည်သည့်အကောင့်မှမရှိသေးပါ။")
 
 def render_edit_user():
-    """အကောင့်ပြင်ဆင်ခြင်း"""
-    st.markdown('<h3 class="section-header">အကောင့်အချက်အလက်ပြင်ဆင်ခြင်း</h3>', unsafe_allow_html=True)
+    """Edit user form"""
+    st.markdown('<h3 class="sub-title">အကောင့်အချက်အလက်ပြင်ဆင်ခြင်း</h3>', unsafe_allow_html=True)
     
-    # Select user to edit
     user_options = list(st.session_state.users_db.keys())
     selected_user = st.selectbox("ပြင်ဆင်လိုသောအကောင့်ရွေးချယ်ရန်", user_options)
     
@@ -764,44 +1182,31 @@ def render_edit_user():
             with col1:
                 edit_name = st.text_input(
                     "အမည်အပြည့်အစုံ *",
-                    value=user_info['name'],
-                    key="edit_name"
+                    value=user_info['name']
                 )
                 
                 edit_role = st.selectbox(
                     "အခန်းကဏ္ဍ *",
-                    ["user", "admin"],
-                    index=0 if user_info['role'] == 'user' else 1,
-                    key="edit_role"
+                    ["user", "agent", "admin"],
+                    index=["user", "agent", "admin"].index(user_info['role'])
                 )
             
             with col2:
                 edit_email = st.text_input(
                     "အီးမေးလ်",
-                    value=user_info.get('email', ''),
-                    key="edit_email"
+                    value=user_info.get('email', '')
                 )
                 
                 new_password = st.text_input(
                     "စကားဝှက် အသစ် (မထည့်လျှင်ပြီးခဲ့သည့်အတိုင်းထားမည်)",
                     type="password",
-                    placeholder="စကားဝှက်အသစ်ထည့်ပါ",
-                    key="edit_password"
+                    placeholder="စကားဝှက်အသစ်ထည့်ပါ"
                 )
             
-            st.markdown("""
-            <div class="info-box">
-            <p><b>မှတ်ချက်:</b> စကားဝှက်ကွက်လပ်ထားခဲ့လျှင် လက်ရှိစကားဝှက်အတိုင်းထားမည်။</p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            col_edit1, col_edit2 = st.columns([3, 1])
-            with col_edit1:
-                submitted = st.form_submit_button(
-                    "💾 **အချက်အလက်များသိမ်းဆည်းမည်**",
-                    use_container_width=True,
-                    type="primary"
-                )
+            submitted = st.form_submit_button(
+                "💾 **အချက်အလက်များသိမ်းဆည်းမည်**",
+                use_container_width=True
+            )
             
             if submitted:
                 update_data = {
@@ -813,7 +1218,7 @@ def render_edit_user():
                 if new_password:
                     update_data['password'] = new_password
                 
-                success, message = update_user(selected_user, **update_data)
+                success, message = update_user_info(selected_user, **update_data)
                 
                 if success:
                     st.success(f"✅ {message}")
@@ -822,19 +1227,9 @@ def render_edit_user():
                     st.error(f"❌ {message}")
 
 def render_delete_user():
-    """အကောင့်ဖျက်ခြင်း"""
-    st.markdown('<h3 class="section-header">အကောင့်ဖျက်ခြင်း</h3>', unsafe_allow_html=True)
+    """Delete user form"""
+    st.markdown('<h3 class="sub-title">အကောင့်ဖျက်ခြင်း</h3>', unsafe_allow_html=True)
     
-    # Warning message
-    st.markdown("""
-    <div class="error-box">
-    <h4>⚠ သတိပေးချက်</h4>
-    <p>အကောင့်ဖျက်ခြင်းသည် <b>ပြန်လည်ရယူ၍မရသော လုပ်ဆောင်ချက်ဖြစ်ပါသည်။</b></p>
-    <p>ဖျက်မည့်အကောင့်၏ အချက်အလက်အားလုံးပျက်စီးသွားမည်ဖြစ်ပါသည်။</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Select user to delete (exclude current user)
     deletable_users = [u for u in st.session_state.users_db.keys() 
                       if u != st.session_state.current_user]
     
@@ -844,7 +1239,6 @@ def render_delete_user():
         if selected_user:
             user_info = st.session_state.users_db[selected_user]
             
-            # Show user info
             st.markdown("### ဖျက်မည့်အကောင့်၏အချက်အလက်များ")
             col_info1, col_info2 = st.columns(2)
             
@@ -855,12 +1249,9 @@ def render_delete_user():
             
             with col_info2:
                 st.write(f"**အကောင့်ဖွင့်သည့်ရက်:** {user_info['created_at']}")
-                st.write(f"**နောက်ဆုံးဝင်ရောက်ချိန်:** {user_info['last_login']}")
                 if user_info.get('email'):
                     st.write(f"**အီးမေးလ်:** {user_info['email']}")
             
-            # Confirmation
-            st.divider()
             confirm_text = st.text_input(
                 "အတည်ပြုခြင်း: အကောင့်ဖျက်ရန် သေချာပါသလား? ဖျက်မည်ဆိုလျှင် အောက်ပါအတိုင်းရေးပါ",
                 placeholder="ကျွန်ုပ်အကောင့်ဖျက်ရန်သဘောတူပါသည်"
@@ -870,14 +1261,12 @@ def render_delete_user():
             
             with col_del1:
                 if st.button("🗑️ **အကောင့်ဖျက်မည်**", 
-                           type="primary",
                            disabled=confirm_text != "ကျွန်ုပ်အကောင့်ဖျက်ရန်သဘောတူပါသည်",
                            use_container_width=True):
-                    success, message = delete_user(selected_user)
+                    success, message = delete_user_account(selected_user)
                     
                     if success:
                         st.success(f"✅ {message}")
-                        st.balloons()
                         st.rerun()
                     else:
                         st.error(f"❌ {message}")
@@ -888,110 +1277,80 @@ def render_delete_user():
     else:
         st.info("ဖျက်နိုင်သောအကောင့်များမရှိပါ။")
 
-# ==================== Statistics Page ====================
-def render_statistics():
-    st.markdown('<h1 class="main-header">📊 အချက်အလက်များနှင့် အစီရင်ခံစာများ</h1>', unsafe_allow_html=True)
+# ==================== REPORTS PAGE ====================
+def render_reports_page():
+    """Reports page"""
+    st.markdown('<h1 class="main-title">📊 အစီရင်ခံစာများ</h1>', unsafe_allow_html=True)
     
-    tab_stat1, tab_stat2, tab_stat3 = st.tabs(["📈 စာရင်းဇယားများ", "📅 လုပ်ဆောင်ချက်မှတ်တမ်း", "🔍 Cache စီမံခန့်ခွဲမှု"])
-    
-    with tab_stat1:
-        render_user_statistics()
-    
-    with tab_stat2:
-        view_activity_log()
-    
-    with tab_stat3:
-        manage_cache()
+    if st.session_state.user_role == 'admin':
+        tab1, tab2, tab3 = st.tabs(["📈 စာရင်းဇယားများ", "📅 လုပ်ဆောင်ချက်မှတ်တမ်း", "🔍 Cache စီမံခန့်ခွဲမှု"])
+        
+        with tab1:
+            render_system_statistics()
+        
+        with tab2:
+            render_activity_log()
+        
+        with tab3:
+            render_cache_management()
+    else:
+        st.info("📊 အစီရင်ခံစာများကို Admin များသာကြည့်ရှုနိုင်ပါသည်။")
 
-def render_user_statistics():
-    """အသုံးပြုသူစာရင်းဇယားများ"""
-    # Calculate statistics
+def render_system_statistics():
+    """System statistics"""
+    # User statistics
     total_users = len(st.session_state.users_db)
     admin_count = sum(1 for u in st.session_state.users_db.values() if u['role'] == 'admin')
-    user_count = total_users - admin_count
+    agent_count = sum(1 for u in st.session_state.users_db.values() if u['role'] == 'agent')
+    user_count = sum(1 for u in st.session_state.users_db.values() if u['role'] == 'user')
     
-    # Monthly signups (simulated)
-    months = ["ဇန်နဝါရီ", "ဖေဖော်ဝါရီ", "မတ်", "ဧပြီ", "မေ", "ဇွန်"]
-    signups = [5, 8, 12, 10, 15, 18]  # Example data
+    # 2D statistics
+    total_2d_entries = 0
+    total_2d_amount = 0
+    for entries in st.session_state.today_entries.values():
+        total_2d_entries += len(entries)
+        total_2d_amount += sum(entry['amount'] for entry in entries)
     
-    # Display metrics
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("စုစုပေါင်းအကောင့်", total_users)
+        st.metric("စုစုပေါင်းအသုံးပြုသူ", total_users)
     with col2:
-        st.metric("Admin အကောင့်", admin_count)
+        st.metric("Admin များ", admin_count)
     with col3:
-        st.metric("User အကောင့်", user_count)
+        st.metric("အေဂျင့်များ", agent_count)
     with col4:
-        active_today = sum(1 for u in st.session_state.users_db.values() 
-                          if u['last_login'].startswith(datetime.now().strftime("%Y-%m-%d")))
-        st.metric("ယနေ့အသုံးပြုသူ", active_today)
+        st.metric("ယနေ့ 2D အရေအတွက်", total_2d_entries)
     
     st.divider()
     
-    # Charts
-    col_chart1, col_chart2 = st.columns(2)
+    # Activity summary
+    st.markdown("### 📈 လုပ်ဆောင်မှုအကျဉ်းချုပ်")
     
-    with col_chart1:
-        st.markdown("### 👥 အခန်းကဏ္ဍအလိုက်ခွဲခြားမှု")
-        role_data = pd.DataFrame({
-            'အခန်းကဏ္ဍ': ['Admin', 'User'],
-            'အရေအတွက်': [admin_count, user_count]
-        })
-        st.bar_chart(role_data.set_index('အခန်းကဏ္ဍ'))
-    
-    with col_chart2:
-        st.markdown("### 📅 လစဉ်အကောင့်တိုးပွားမှု")
-        monthly_data = pd.DataFrame({
-            'လ': months,
-            'အရေအတွက်': signups
-        })
-        st.line_chart(monthly_data.set_index('လ'))
-    
-    st.divider()
-    
-    # User activity heatmap (simulated)
-    st.markdown("### 📅 လုပ်ဆောင်မှုအချိန်ဇယား")
-    days = ["တနင်္လာ", "အင်္ဂါ", "ဗုဒ္ဓဟူး", "ကြာသပတေး", "သောကြာ", "စနေ", "တနင်္ဂနွေ"]
-    hours = [f"{i}:00" for i in range(8, 20)]
-    
-    # Simulate activity data
-    import random
-    activity_data = [[random.randint(0, 10) for _ in range(7)] for _ in range(12)]
-    
-    activity_df = pd.DataFrame(activity_data, index=hours, columns=days)
-    
-    st.dataframe(activity_df.style.background_gradient(cmap='YlOrRd'), use_container_width=True)
-    
-    st.caption("အရောင်ရင့်လေလေ လုပ်ဆောင်မှုများလေလေ")
+    activity_df = pd.DataFrame(st.session_state.activity_log)
+    if not activity_df.empty:
+        st.dataframe(activity_df, use_container_width=True)
+    else:
+        st.info("မည်သည့်လုပ်ဆောင်ချက်မှတ်တမ်းမှမရှိသေးပါ။")
 
-def view_activity_log():
-    """လုပ်ဆောင်ချက်မှတ်တမ်းကြည့်ရှုခြင်း"""
-    st.markdown('<h3 class="section-header">လုပ်ဆောင်ချက်မှတ်တမ်း</h3>', unsafe_allow_html=True)
+def render_activity_log():
+    """Activity log viewer"""
+    st.markdown('<h3 class="sub-title">လုပ်ဆောင်ချက်မှတ်တမ်း</h3>', unsafe_allow_html=True)
     
     if st.session_state.activity_log:
         # Filter options
-        col_filter1, col_filter2, col_filter3 = st.columns(3)
+        col_filter1, col_filter2 = st.columns(2)
         
         with col_filter1:
             user_filter = st.multiselect(
                 "အသုံးပြုသူအလိုက်စစ်ထုတ်ခြင်း",
-                options=list(set(log['user'] for log in st.session_state.activity_log)),
-                default=[]
+                options=list(set(log['user'] for log in st.session_state.activity_log))
             )
         
         with col_filter2:
             action_filter = st.multiselect(
                 "လုပ်ဆောင်ချက်အလိုက်စစ်ထုတ်ခြင်း",
-                options=list(set(log['action'] for log in st.session_state.activity_log)),
-                default=[]
-            )
-        
-        with col_filter3:
-            date_filter = st.date_input(
-                "ရက်စွဲအလိုက်စစ်ထုတ်ခြင်း",
-                value=[]
+                options=list(set(log['action'] for log in st.session_state.activity_log))
             )
         
         # Filter logs
@@ -1003,47 +1362,22 @@ def view_activity_log():
         if action_filter:
             filtered_logs = [log for log in filtered_logs if log['action'] in action_filter]
         
-        if date_filter:
-            date_str = date_filter.strftime("%Y-%m-%d")
-            filtered_logs = [log for log in filtered_logs if log['timestamp'].startswith(date_str)]
-        
         # Display logs
         for log in reversed(filtered_logs):
             with st.container():
-                # Determine color based on action
-                if "Login" in log['action']:
-                    border_color = "#10B981"  # Green
-                    icon = "🔐"
-                elif "Add" in log['action']:
-                    border_color = "#3B82F6"  # Blue
-                    icon = "➕"
-                elif "Update" in log['action']:
-                    border_color = "#F59E0B"  # Yellow
-                    icon = "✏️"
-                elif "Delete" in log['action']:
-                    border_color = "#EF4444"  # Red
-                    icon = "🗑️"
-                else:
-                    border_color = "#6B7280"  # Gray
-                    icon = "📝"
-                
                 st.markdown(f"""
                 <div style="
                     background-color: white;
                     padding: 12px;
                     border-radius: 8px;
-                    border-left: 5px solid {border_color};
+                    border-left: 5px solid #3B82F6;
                     margin: 8px 0;
                     box-shadow: 0 2px 4px rgba(0,0,0,0.05);
                 ">
-                    <div style="display: flex; align-items: center; margin-bottom: 5px;">
-                        <span style="font-size: 20px; margin-right: 10px;">{icon}</span>
-                        <strong style="font-size: 16px;">{log['action']}</strong>
-                        <span style="margin-left: auto; color: #6B7280; font-size: 12px;">{log['timestamp']}</span>
-                    </div>
-                    <div style="color: #4B5563; font-size: 14px;">
-                        <strong>အသုံးပြုသူ:</strong> {log['user']}
-                        {f"<br><strong>အသေးစိတ်:</strong> {log['details']}" if log['details'] else ""}
+                    <strong>{log['action']}</strong>
+                    <div style="color: #6B7280; font-size: 12px;">
+                        {log['timestamp']} - {log['user']}
+                        {f"<br>{log['details']}" if log['details'] else ""}
                     </div>
                 </div>
                 """, unsafe_allow_html=True)
@@ -1062,19 +1396,18 @@ def view_activity_log():
     else:
         st.info("လုပ်ဆောင်ချက်မှတ်တမ်းများမရှိသေးပါ။")
 
-def manage_cache():
-    """Cache စီမံခန့်ခွဲမှု"""
-    st.markdown('<h3 class="section-header">Cache စီမံခန့်ခွဲမှု</h3>', unsafe_allow_html=True)
+def render_cache_management():
+    """Cache management"""
+    st.markdown('<h3 class="sub-title">Cache စီမံခန့်ခွဲမှု</h3>', unsafe_allow_html=True)
     
     col_manage1, col_manage2 = st.columns([2, 1])
     
     with col_manage1:
-        # Cache operations
         st.markdown("### Cache လုပ်ဆောင်ချက်များ")
         
         with st.form("cache_management_form"):
-            cache_key = st.text_input("Cache Key", placeholder="key", key="cache_key")
-            cache_value = st.text_input("Cache Value", placeholder="value", key="cache_value")
+            cache_key = st.text_input("Cache Key", placeholder="key")
+            cache_value = st.text_input("Cache Value", placeholder="value")
             
             col_ops1, col_ops2, col_ops3 = st.columns(3)
             
@@ -1112,7 +1445,6 @@ def manage_cache():
                 st.rerun()
     
     with col_manage2:
-        # Cache status
         st.markdown("### Cache အခြေအနေ")
         
         cache_size = len(st.session_state.number_limits_cache)
@@ -1123,52 +1455,22 @@ def manage_cache():
                 st.write(st.session_state.number_limits_cache)
             else:
                 st.info("Cache ထဲတွင် အချက်အလက်မရှိပါ။")
-        
-        st.divider()
-        
-        # Cache statistics
-        st.markdown("#### Cache စာရင်းဇယား")
-        if cache_size > 0:
-            keys = list(st.session_state.number_limits_cache.keys())
-            values = list(st.session_state.number_limits_cache.values())
-            
-            avg_length = sum(len(str(v)) for v in values) / cache_size if cache_size > 0 else 0
-            
-            st.write(f"**Key များ:** {', '.join(keys[:5])}{'...' if len(keys) > 5 else ''}")
-            st.write(f"**ပျမ်းမျှတန်ဖိုးအရွယ်အစား:** {avg_length:.1f} စာလုံး")
-            
-            # Export cache
-            if st.button("📤 Cache ထုတ်ယူရန်"):
-                cache_df = pd.DataFrame(
-                    list(st.session_state.number_limits_cache.items()),
-                    columns=['Key', 'Value']
-                )
-                csv = cache_df.to_csv(index=False, encoding='utf-8-sig')
-                
-                st.download_button(
-                    label="💾 Cache ဒေါင်းလုတ်လုပ်ရန်",
-                    data=csv,
-                    file_name=f"cache_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    mime="text/csv"
-                )
 
-# ==================== Settings Page ====================
-def render_settings():
-    st.markdown('<h1 class="main-header">⚙️ စနစ်ဆက်တင်များ</h1>', unsafe_allow_html=True)
+# ==================== SETTINGS PAGE ====================
+def render_settings_page():
+    """Settings page"""
+    st.markdown('<h1 class="main-title">⚙️ ဆက်တင်များ</h1>', unsafe_allow_html=True)
     
-    tab_set1, tab_set2, tab_set3 = st.tabs(["🔧 အထွေထွေဆက်တင်များ", "🔐 လုံခြုံရေးဆက်တင်များ", "📋 စနစ်အချက်အလက်"])
+    tab1, tab2 = st.tabs(["🔧 အထွေထွေဆက်တင်များ", "📋 စနစ်အချက်အလက်"])
     
-    with tab_set1:
+    with tab1:
         render_general_settings()
     
-    with tab_set2:
-        render_security_settings()
-    
-    with tab_set3:
+    with tab2:
         render_system_info()
 
 def render_general_settings():
-    """အထွေထွေဆက်တင်များ"""
+    """General settings"""
     st.markdown("### 🔧 အထွေထွေဆက်တင်များ")
     
     with st.form("general_settings_form"):
@@ -1180,18 +1482,6 @@ def render_general_settings():
         st.markdown("#### 🌐 ဘာသာစကား")
         language = st.selectbox("ဘာသာစကားရွေးချယ်ရန်", ["မြန်မာ", "အင်္ဂလိပ်"])
         
-        # Notification settings
-        st.markdown("#### 🔔 အသိပေးချက်များ")
-        col_notif1, col_notif2 = st.columns(2)
-        
-        with col_notif1:
-            email_notifications = st.checkbox("အီးမေးလ်အသိပေးချက်များ", value=True)
-            login_alerts = st.checkbox("ဝင်ရောက်မှုသတိပေးချက်များ", value=True)
-        
-        with col_notif2:
-            error_alerts = st.checkbox("အမှားအယွင်းသတိပေးချက်များ", value=True)
-            update_notifications = st.checkbox("အပ်ဒိတ်အသိပေးချက်များ", value=True)
-        
         # Data settings
         st.markdown("#### 💾 ဒေတာစီမံခန့်ခွဲမှု")
         auto_backup = st.checkbox("အလိုအလျောက် Backup လုပ်မည်", value=True)
@@ -1200,65 +1490,13 @@ def render_general_settings():
         col_save, col_reset = st.columns(2)
         with col_save:
             save_settings = st.form_submit_button("💾 ဆက်တင်များသိမ်းဆည်းမည်", use_container_width=True)
-        with col_reset:
-            reset_settings = st.form_submit_button("🔄 မူလအတိုင်းပြန်ထားမည်", use_container_width=True)
         
         if save_settings:
             st.success("✅ ဆက်တင်များသိမ်းဆည်းပြီးပါပြီ။")
             log_activity("Settings", "Updated general settings")
-        
-        if reset_settings:
-            st.info("🔄 ဆက်တင်များမူလအတိုင်းပြန်လည်ထားရှိပါမည်။")
-
-def render_security_settings():
-    """လုံခြုံရေးဆက်တင်များ"""
-    st.markdown("### 🔐 လုံခြုံရေးဆက်တင်များ")
-    
-    # Password policy
-    st.markdown("#### 🔒 စကားဝှက်စည်းမျဉ်းများ")
-    
-    with st.form("security_settings_form"):
-        min_password_length = st.slider("အနည်းဆုံးစကားဝှက်အရှည်", 6, 20, 8)
-        require_uppercase = st.checkbox("အကြီးအသေးစာလုံးပါဝင်ရန်", value=True)
-        require_numbers = st.checkbox("နံပါတ်ပါဝင်ရန်", value=True)
-        require_special = st.checkbox("အထူးသင်္ကေတပါဝင်ရန်", value=False)
-        
-        # Session settings
-        st.markdown("#### ⏱️ Session ဆက်တင်များ")
-        session_timeout = st.slider("Session အချိန်ကုန်ဆုံးမှု (မိနစ်)", 15, 240, 60)
-        max_login_attempts = st.slider("အများဆုံးဝင်ရောက်ခွင့်ကြိုးစားမှု", 3, 10, 5)
-        
-        # Security features
-        st.markdown("#### 🛡️ အပိုလုံခြုံရေးစနစ်များ")
-        two_factor_auth = st.checkbox("၂-ဆင့်အတည်ပြုခြင်း", value=False)
-        ip_whitelist = st.checkbox("IP Whitelist သုံးရန်", value=False)
-        login_notifications = st.checkbox("ဝင်ရောက်မှုအသိပေးချက်များ", value=True)
-        
-        col_sec1, col_sec2 = st.columns(2)
-        with col_sec1:
-            save_security = st.form_submit_button("💾 လုံခြုံရေးဆက်တင်များသိမ်းမည်", use_container_width=True)
-        with col_sec2:
-            test_security = st.form_submit_button("🧪 လုံခြုံရေးစစ်ဆေးမှုပြုလုပ်မည်", use_container_width=True)
-        
-        if save_security:
-            st.success("✅ လုံခြုံရေးဆက်တင်များသိမ်းဆည်းပြီးပါပြီ။")
-            log_activity("Security", "Updated security settings")
-        
-        if test_security:
-            st.info("🔒 လုံခြုံရေးစစ်ဆေးမှုပြုလုပ်နေပါသည်...")
-            
-            # Simulate security test
-            import time
-            progress_bar = st.progress(0)
-            
-            for i in range(100):
-                time.sleep(0.01)
-                progress_bar.progress(i + 1)
-            
-            st.success("✅ လုံခြုံရေးစစ်ဆေးမှု အောင်မြင်ပါသည်။")
 
 def render_system_info():
-    """စနစ်အချက်အလက်"""
+    """System information"""
     st.markdown("### 📋 စနစ်အချက်အလက်")
     
     # System information cards
@@ -1269,30 +1507,32 @@ def render_system_info():
         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
                     color: white; padding: 20px; border-radius: 10px; text-align: center;">
             <h3>🏢 စနစ်</h3>
-            <p style="font-size: 24px; margin: 10px 0;">User Management</p>
+            <p style="font-size: 24px; margin: 10px 0;">2D & အကောင့်မန်နေဂျာ</p>
             <p>ဗားရှင်း 1.0.0</p>
         </div>
         """, unsafe_allow_html=True)
     
     with col_sys2:
-        st.markdown("""
+        total_users = len(st.session_state.users_db)
+        st.markdown(f"""
         <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); 
                     color: white; padding: 20px; border-radius: 10px; text-align: center;">
             <h3>📊 ဒေတာ</h3>
-            <p style="font-size: 24px; margin: 10px 0;">{}</p>
-            <p>စုစုပေါင်းအကောင့်</p>
+            <p style="font-size: 24px; margin: 10px 0;">{total_users}</p>
+            <p>စုစုပေါင်းအသုံးပြုသူ</p>
         </div>
-        """.format(len(st.session_state.users_db)), unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
     
     with col_sys3:
-        st.markdown("""
+        activity_count = len(st.session_state.activity_log)
+        st.markdown(f"""
         <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); 
                     color: white; padding: 20px; border-radius: 10px; text-align: center;">
             <h3>📈 လုပ်ဆောင်မှု</h3>
-            <p style="font-size: 24px; margin: 10px 0;">{}</p>
+            <p style="font-size: 24px; margin: 10px 0;">{activity_count}</p>
             <p>လုပ်ဆောင်ချက်မှတ်တမ်း</p>
         </div>
-        """.format(len(st.session_state.activity_log)), unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
     
     st.divider()
     
@@ -1304,14 +1544,14 @@ def render_system_info():
     with col_detail1:
         st.markdown("""
         **ဆော့ဖ်ဝဲအချက်အလက်:**
-        - **အမည်:** အကောင့်စီမံခန့်ခွဲမှုစနစ်
+        - **အမည်:** 2D စနစ် & အကောင့်မန်နေဂျာ
         - **ဗားရှင်း:** 1.0.0
         - **ဖွံ့ဖြိုးမှု:** Streamlit
         - **ဘာသာစကား:** Python 3.8+
         
         **ဒေတာဘေ့စ်:**
         - **အမျိုးအစား:** In-memory Session
-        - **အကောင့်အရေအတွက်:** {}
+        - **အသုံးပြုသူအရေအတွက်:** {}
         - **Cache အရွယ်အစား:** {} items
         """.format(len(st.session_state.users_db), len(st.session_state.number_limits_cache)))
     
@@ -1323,62 +1563,10 @@ def render_system_info():
         - **လုပ်ဆောင်ချက်မှတ်တမ်း:** ပြည့်စုံ
         
         **ပံ့ပိုးမှုများ:**
-        - **Multi-role Access:** Admin/User
+        - **Multi-role Access:** Admin/Agent/User
+        - **Google Sheets Integration:** အလိုအလျောက်
         - **ဒေတာထုတ်ယူမှု:** CSV Export
-        - **Cache စီမံခန့်ခွဲမှု:** ပြည့်စုံ
         """)
-    
-    st.divider()
-    
-    # System maintenance
-    st.markdown("#### 🔧 စနစ်ထိန်းသိမ်းမှု")
-    
-    col_maint1, col_maint2, col_maint3 = st.columns(3)
-    
-    with col_maint1:
-        if st.button("🔄 Cache ရှင်းလင်းရန်", use_container_width=True):
-            st.session_state.number_limits_cache = {}
-            st.success("✅ Cache ရှင်းလင်းပြီးပါပြီ။")
-            log_activity("System", "Cleared cache")
-            st.rerun()
-    
-    with col_maint2:
-        if st.button("📊 Activity Log ရှင်းလင်းရန်", use_container_width=True):
-            st.session_state.activity_log = []
-            st.success("✅ Activity Log ရှင်းလင်းပြီးပါပြီ။")
-            log_activity("System", "Cleared activity log")
-            st.rerun()
-    
-    with col_maint3:
-        if st.button("📥 စနစ်အချက်အလက်ထုတ်ယူရန်", use_container_width=True):
-            # Create system report
-            system_report = {
-                "system_info": {
-                    "name": "User Management System",
-                    "version": "1.0.0",
-                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                },
-                "user_stats": {
-                    "total_users": len(st.session_state.users_db),
-                    "admin_count": sum(1 for u in st.session_state.users_db.values() if u['role'] == 'admin'),
-                    "user_count": sum(1 for u in st.session_state.users_db.values() if u['role'] == 'user')
-                },
-                "activity_stats": {
-                    "total_activities": len(st.session_state.activity_log),
-                    "cache_size": len(st.session_state.number_limits_cache)
-                }
-            }
-            
-            # Convert to JSON for download
-            import json
-            report_json = json.dumps(system_report, indent=2, ensure_ascii=False)
-            
-            st.download_button(
-                label="💾 System Report ဒေါင်းလုတ်လုပ်ရန်",
-                data=report_json,
-                file_name=f"system_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                mime="application/json"
-            )
 
 # ==================== RUN APPLICATION ====================
 if __name__ == "__main__":
